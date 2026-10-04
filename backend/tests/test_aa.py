@@ -519,6 +519,21 @@ def test_ambiguous_contact_name_never_gets_an_automatic_weight(client):
     assert any("联系人" in issue and "份数" in issue for issue in draft["needs_review"])
 
 
+def test_complete_percentages_prefill_ratios_and_incomplete_total_is_rejected(client):
+    draft = interpret(client, "我垫了100元，我承担20%，林悦30%，陈晨50%AA")
+    assert draft["suggested_share_ratios"] == {"self": 20, LIN: 30, CHEN: 50}
+    plan = preview(client, total_yuan="100", shares_ratio=draft["suggested_share_ratios"])
+    assert [row["amount_yuan"] for row in plan["participants"]] == ["20.00", "30.00", "50.00"]
+
+    incomplete = interpret(client, "我垫了100元，我承担20%，林悦30%，陈晨40%AA", session="incomplete-percentages")
+    assert incomplete["suggested_share_ratios"] is None
+    assert any("恰好为 100%" in issue for issue in incomplete["needs_review"])
+
+    mixed = interpret(client, "我垫了100元，我一份，林悦30%，陈晨一份AA", session="mixed-share-units")
+    assert mixed["suggested_share_ratios"] is None
+    assert any("百分比必须全部使用百分比格式" in issue for issue in mixed["needs_review"])
+
+
 @pytest.mark.parametrize("endpoint", ["/api/aa/interpret", "/api/chat"])
 def test_follow_up_note_cannot_supply_missing_amount_members_or_self_exclusion(client, endpoint):
     first = interpret(client, "我和林悦AA", endpoint)

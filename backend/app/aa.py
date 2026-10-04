@@ -74,7 +74,7 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
         issues.append("首版用于本人垫付后的收款；原句提到其他人垫付，请核对或改为本人垫付的支出。")
     if state.get("aa_non_equal"):
         if state.get("share_weights"):
-            issues.append("检测到明确份数或非均分信息；请先核对总额和预填权重，再检查服务端计算的每人金额。")
+            issues.append("已识别逐人份数或比例信息；请先核对总额和预填权重，再检查服务端计算的每人金额。")
         else:
             issues.append("检测到非均分或多个金额，请先核对总额，再在分摊表手动调整每人份额；不会自动分配差额。")
     members, seen = [], set()
@@ -99,9 +99,18 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
         issues.append(f"原句说共 {state['participant_count']} 人，目前名单连同本人共 {len(members) + 1} 人，请核对。")
     suggested_share_ratios = None
     if state.get("share_weights"):
+        weight_entries = state["share_weights"]
+        percentage_entries = [entry for entry in weight_entries if entry.get("kind") == "percentage"]
+        valid_percentages = not percentage_entries or (
+            len(percentage_entries) == len(weight_entries)
+            and all(0 <= entry["weight"] <= 100 for entry in percentage_entries)
+            and sum(entry["weight"] for entry in percentage_entries) == 100
+        )
+        if not valid_percentages:
+            issues.append("口述百分比必须全部使用百分比格式、每项在 0–100% 内，且合计恰好为 100%；请核对后再预览。")
         ratios = {}
         ambiguous = False
-        for entry in state["share_weights"]:
+        for entry in weight_entries:
             token = entry["name"]
             if token in {"我", "本人", "自己"}:
                 person_id = "self"
@@ -113,8 +122,8 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
                 break
             ratios[person_id] = entry["weight"]
         expected_ids = {"self", *(row["contact_id"] for row in members if row["contact_id"])}
-        if ambiguous or set(ratios) != expected_ids or not any(ratios.values()):
-            issues.append("已识别到按人分配的份数，但名单存在歧义或份数没有覆盖本人及全部参与人；请核对联系人，并为每人明确填写份数。")
+        if not valid_percentages or ambiguous or set(ratios) != expected_ids or not any(ratios.values()):
+            issues.append("已识别到按人分配的份数或比例，但名单存在歧义、份额不完整或比例无效；请核对联系人并补齐每人的份额。")
         else:
             suggested_share_ratios = ratios
     draft = {"total_yuan": money(amount) if amount is not None else None, "note": state.get("note") or (source["counterparty"] if source else "AA 分摊"),
@@ -123,7 +132,7 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
              "participants": members, "needs_review": issues, "requires_custom_shares": bool(state.get("aa_non_equal")),
              "suggested_share_ratios": suggested_share_ratios}
     set_context(conn, session_id, {"pending_aa": state})
-    ratio_message = "已识别明确的份数并预填比例权重；服务端会重新计算金额，请核对每个人的份数和分摊结果。" if suggested_share_ratios else None
+    ratio_message = "已识别明确的份数或百分比并预填比例权重；服务端会重新计算金额，请核对每个人的份额和分摊结果。" if suggested_share_ratios else None
     return reply(" ".join(issues) if issues else ratio_message or "已提取分摊信息。请核对名单并计算预览，确认后才建立收款单。",
                  session_id, mode, aa_draft=draft)
 

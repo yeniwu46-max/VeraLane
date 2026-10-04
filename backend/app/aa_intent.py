@@ -12,8 +12,8 @@ SELF_WORDS = {"我", "本人", "自己"}
 COUNT = re.compile(r"(?:总共|一共|共)?([零〇一二三四五六七八九十两\d]+)(?:个)?人")
 MONEY = re.compile(r"[+\-−－＋¥￥\d.,，eE\s]+(?:元|块)")
 PHONE = re.compile(r"1[3-9]\d{9}")
-NON_EQUAL = re.compile(r"少付|多付|少出|多出|各付|各出|分别付|分别出|每人|一人\s*\d|比例|按份|不均分|不平摊|不平均|承担\s*\d|付\s*\d.*付\s*\d")
-WEIGHT_NUMBER = r"[零〇一二三四五六七八九十两\d]{1,7}"
+NON_EQUAL = re.compile(r"少付|多付|少出|多出|各付|各出|分别付|分别出|每人|一人\s*\d|比例|按份|不均分|不平摊|不平均|承担\s*\d|付\s*\d.*付\s*\d|百分之|[%％]")
+WEIGHT_NUMBER = r"[零〇一二三四五六七八九十两百\d]{1,7}"
 
 
 def _explicit_share_weights(text: str, contact_names: list[str]) -> tuple[list[dict] | None, str]:
@@ -23,15 +23,21 @@ def _explicit_share_weights(text: str, contact_names: list[str]) -> tuple[list[d
     # Full phone numbers are useful when a contact name is ambiguous.
     pattern = re.compile(
         rf"(?P<name>{'|'.join(re.escape(name) for name in aliases)}|1[3-9]\d{{9}})"
-        rf"\s*(?:(?:[:：=]\s*(?P<colon>{WEIGHT_NUMBER}))|(?:\s*(?P<units>{WEIGHT_NUMBER})\s*(?:份额|份)))"
+        rf"\s*(?:(?:[:：=]\s*(?P<colon>{WEIGHT_NUMBER}))"
+        rf"|(?:\s*(?P<units>{WEIGHT_NUMBER})\s*(?:份额|份))"
+        rf"|(?:\s*(?:(?:承担|占|出)\s*)?(?:百分之\s*(?P<percent_word>{WEIGHT_NUMBER})|(?P<percent>{WEIGHT_NUMBER})\s*[%％])))"
     )
     weights: list[dict] = []
     cleaned = text
     for match in reversed(list(pattern.finditer(text))):
-        value = chinese_number(match.group("colon") or match.group("units"))
+        percent_text = match.group("percent_word") or match.group("percent")
+        percent_match = percent_text is not None
+        number_text = percent_text or match.group("colon") or match.group("units")
+        value = 100 if number_text in {"百", "一百"} else chinese_number(number_text)
         if value is None or value < 0 or value > 1_000_000:
             continue
-        weights.insert(0, {"name": match.group("name"), "weight": value})
+        weights.insert(0, {"name": match.group("name"), "weight": value,
+                           "kind": "percentage" if percent_match else "ratio" if match.group("colon") is not None else "units"})
         # Keep names that appear only in the weight list; avoid duplicating a
         # participant already named earlier in the sentence.
         outside = text[:match.start()] + text[match.end():]

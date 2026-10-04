@@ -87,8 +87,11 @@ def test_custom_or_multiple_amounts_require_manual_allocation(message):
 
 
 @pytest.mark.parametrize("message,weights,participants", [
-    ("聚餐我垫了120元，我一份，林悦两份，陈晨一份AA", [{"name": "我", "weight": 1}, {"name": "林悦", "weight": 2}, {"name": "陈晨", "weight": 1}], ["林悦", "陈晨"]),
-    ("我和林悦按比例分摊100元，我:1，林悦:3", [{"name": "我", "weight": 1}, {"name": "林悦", "weight": 3}], ["林悦"]),
+    ("聚餐我垫了120元，我一份，林悦两份，陈晨一份AA", [{"name": "我", "weight": 1, "kind": "units"}, {"name": "林悦", "weight": 2, "kind": "units"}, {"name": "陈晨", "weight": 1, "kind": "units"}], ["林悦", "陈晨"]),
+    ("我和林悦按比例分摊100元，我:1，林悦:3", [{"name": "我", "weight": 1, "kind": "ratio"}, {"name": "林悦", "weight": 3, "kind": "ratio"}], ["林悦"]),
+    ("我承担20%，林悦30%，陈晨50%AA", [{"name": "我", "weight": 20, "kind": "percentage"}, {"name": "林悦", "weight": 30, "kind": "percentage"}, {"name": "陈晨", "weight": 50, "kind": "percentage"}], ["林悦", "陈晨"]),
+    ("我百分之二十，林悦百分之三十，陈晨百分之五十AA", [{"name": "我", "weight": 20, "kind": "percentage"}, {"name": "林悦", "weight": 30, "kind": "percentage"}, {"name": "陈晨", "weight": 50, "kind": "percentage"}], ["林悦", "陈晨"]),
+    ("我百分之百，林悦百分之零AA", [{"name": "我", "weight": 100, "kind": "percentage"}, {"name": "林悦", "weight": 0, "kind": "percentage"}], ["林悦"]),
 ])
 def test_explicit_named_weights_are_extracted_without_computing_amounts(message, weights, participants):
     value = parse_aa_message(message, CONTACTS)
@@ -99,8 +102,14 @@ def test_explicit_named_weights_are_extracted_without_computing_amounts(message,
 
 def test_partial_or_ambiguous_weight_specification_is_not_completed_by_the_parser():
     value = parse_aa_message("我一份，王明两份，林悦AA100元", CONTACTS)
-    assert value["share_weights"] == [{"name": "我", "weight": 1}, {"name": "王明", "weight": 2}]
+    assert value["share_weights"] == [{"name": "我", "weight": 1, "kind": "units"}, {"name": "王明", "weight": 2, "kind": "units"}]
     assert value["participants"] == ["王明", "林悦"]
+
+
+def test_unsupported_decimal_percentages_still_require_custom_share_review():
+    value = parse_aa_message("我12.5%，林悦87.5%，我们AA", CONTACTS)
+    assert value["share_weights"] is None
+    assert value["aa_non_equal"] is True
 
 
 def test_note_is_data_and_does_not_add_participants_or_constraints():
