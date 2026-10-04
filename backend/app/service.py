@@ -104,6 +104,12 @@ def set_context(conn: sqlite3.Connection, session_id: str, context: dict[str, An
     )
 
 
+def _remember_bill_transaction_ids(conn: sqlite3.Connection, session_id: str, transaction_ids: list[str]) -> None:
+    context = get_context(conn, session_id)
+    context["last_bill_transaction_ids"] = [value for value in transaction_ids[:50] if isinstance(value, str)]
+    set_context(conn, session_id, context)
+
+
 def reply(message: str, session_id: str, mode: str, **extra: Any) -> dict[str, Any]:
     return {"session_id": session_id, "message": message, "mode": mode, **extra}
 
@@ -246,6 +252,78 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
     if (has_subscription_subject and _FUTURE_SUBSCRIPTION_MARKER.search(request_text)
             and _DEFERRED_SUBSCRIPTION_CANCEL.search(request_text)):
         return _withdraw_subscription_cancellations(session_id, request_text, all_subscription_names, deferred=True)
+    from .bill_preferences import parse_chat_classification_correction
+    correction = parse_chat_classification_correction(request_text)
+    if correction:
+        with db_session() as conn:
+            audit(conn, session_id, "intent_parsed", {
+                "action": "bill_classification", "mode": "offline",
+                "model_call": {"fallback_reason": "deterministic_classification_correction"},
+            })
+            rows = [dict(row) for row in conn.execute(
+                "SELECT id,posted_on,direction,amount_cents,counterparty,category,note FROM transactions "
+                "WHERE account_id=? AND direction='out' AND posted_on<=? ORDER BY posted_on DESC,id LIMIT 2000",
+                (ACCOUNT_ID, business_date(conn)),
+            )]
+            explicit_id = correction["transaction_id"]
+            mentioned_ids = [
+                row["id"] for row in rows
+                if re.search(rf"(?<![\w]){re.escape(row['id'])}(?![\w])", request_text)
+            ]
+            amount_cents = cents_from_yuan(correction["amount_yuan"]) if correction["amount_yuan"] else None
+            explicit_date = correction["transaction_date"]
+            mentioned_merchants = {row["counterparty"] for row in rows if row["counterparty"] and row["counterparty"] in request_text}
+            if explicit_id:
+                rows = [row for row in rows if row["id"] == explicit_id]
+            if mentioned_ids:
+                rows = [row for row in rows if row["id"] in mentioned_ids]
+            if mentioned_merchants:
+                rows = [row for row in rows if row["counterparty"] in mentioned_merchants]
+            if amount_cents is not None:
+                rows = [row for row in rows if row["amount_cents"] == amount_cents]
+            if explicit_date:
+                rows = [row for row in rows if row["posted_on"] == explicit_date]
+            has_explicit_reference = bool(explicit_id or mentioned_ids or mentioned_merchants or amount_cents is not None or explicit_date)
+            last_ids = context.get("last_bill_transaction_ids", [])
+            if not has_explicit_reference and isinstance(last_ids, list) and last_ids:
+                rows = [row for row in rows if row["id"] in last_ids]
+            elif not has_explicit_reference:
+                rows = []
+
+            from .bill_preferences import apply_effective_categories, prepare_classification_in_connection
+            rows = apply_effective_categories(conn, rows)
+            if not rows:
+                return reply(
+                    "我没有找到唯一的已发生支出。请提供流水编号（如 tx-8），或提供商户名称和金额；不会创建分类修改计划。",
+                    session_id, "offline",
+                )
+            if len(rows) > 1:
+                choices = [{
+                    "id": row["id"], "posted_on": row["posted_on"], "counterparty": row["counterparty"],
+                    "amount_yuan": money(row["amount_cents"]), "category": row["category"],
+                } for row in rows[:8]]
+                audit(conn, session_id, "bill_classification_needs_clarification", {
+                    "candidate_transaction_ids": [row["id"] for row in rows[:8]],
+                    "category": correction["category"],
+                })
+                return reply(
+                    "找到多笔符合条件的支出，请选择一笔或补充流水编号/金额；我还没有创建修改计划。",
+                    session_id, "offline", classification_choices=choices,
+                    classification_category=correction["category"], classification_reason=correction["reason"],
+                )
+            selected = rows[0]
+            override = conn.execute(
+                "SELECT category,session_id FROM bill_category_overrides WHERE transaction_id=? AND account_id=?",
+                (selected["id"], ACCOUNT_ID),
+            ).fetchone()
+            if override and override["session_id"] != session_id:
+                return reply("此交易的分类编辑属于另一会话，当前会话不能覆盖；请在账单页选择其他交易。", session_id, "offline")
+            if selected["category"] == correction["category"]:
+                return reply(f"{selected['counterparty']}（{selected['posted_on']}）当前已归为“{selected['category']}”，无需创建修改计划。", session_id, "offline")
+            prepared = prepare_classification_in_connection(
+                conn, session_id, selected["id"], correction["category"], correction["reason"],
+            )
+            return reply(prepared["message"], session_id, "offline", pending_action=prepared["pending_action"])
     if _is_transfer_history_query(request_text):
         return _query_transfer_history(session_id, request_text, contact_names)
     parsed = await parse_intent(message, contact_names, subscription_names)
@@ -319,6 +397,7 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
                 try:
                     filters = parse_question(conn, request_text)
                     insight = build_report(conn, filters)
+                    _remember_bill_transaction_ids(conn, session_id, [row["id"] for row in insight["transactions"]])
                     audit(conn, session_id, "insights_queried", {
                         "period": insight["period"], "filters": insight["filters"],
                         "rule_version": RULE_VERSION,
@@ -327,8 +406,9 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
                                  insight_query=request_text, insight_report=insight)
                 except ValueError as exc:
                     return reply(str(exc), session_id, 'offline', insight_query=request_text)
-            set_context(conn, session_id, {})
-            return bill_summary(conn, session_id, parsed.mode, intent.period or message)
+            report = bill_summary(conn, session_id, parsed.mode, intent.period or message)
+            _remember_bill_transaction_ids(conn, session_id, report["report"]["transaction_ids"])
+            return report
         if intent.action == "subscription_list":
             set_context(conn, session_id, {})
             active = conn.execute(

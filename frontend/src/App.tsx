@@ -22,11 +22,11 @@ type Tier = 'yellow' | 'red'
 
 type PendingAction = {
   id: string
-  type: 'transfer' | 'scheduled_transfer' | 'subscription_cancel' | 'bill_budget_upsert'
+  type: 'transfer' | 'scheduled_transfer' | 'subscription_cancel' | 'bill_budget_upsert' | 'bill_classification'
   tier: Tier
   status: 'pending'
   expires_at: string
-  details: Record<string, string | number | null>
+  details: Record<string, unknown>
 }
 
 type View = 'chat' | 'transfer' | 'bills' | 'subscriptions' | 'tasks' | 'investments' | 'cards'
@@ -42,6 +42,9 @@ type AgentReply = {
   choices?: { id: string; name: string; phone: string }[]
   aa_draft?: AaDraft
   insight_query?: string
+  classification_choices?: { id: string; posted_on: string; counterparty: string; amount_yuan: string; category: string }[]
+  classification_category?: string
+  classification_reason?: string
   workflow?: {view:View;section?:'plans'|'life';message:string;plan_id?:string}
 }
 
@@ -176,40 +179,51 @@ function ActionCard({
   const isScheduled = action.type === 'scheduled_transfer'
   const isTransfer = action.type === 'transfer' || isScheduled
   const isBudget = action.type === 'bill_budget_upsert'
+  const isClassification = action.type === 'bill_classification'
   const [reviewed, setReviewed] = useState(false)
   const [verified, setVerified] = useState(false)
   const [verificationBusy, setVerificationBusy] = useState(false)
   const target = isTransfer ? String(action.details.recipient) : String(action.details.merchant)
+  const classifiedTransaction = action.details.transaction && typeof action.details.transaction === 'object'
+    ? action.details.transaction as Record<string, unknown>
+    : {}
   const confirmLabel = isScheduled ? `确认预约 ${currency(String(action.details.amount_yuan))}` : isTransfer
     ? `确认模拟转出 ${currency(String(action.details.amount_yuan))}`
     : isBudget ? `确认保存预算 ${currency(String(action.details.amount_yuan))}`
+    : isClassification ? `确认修正为「${String(action.details.category)}」`
     : `确认取消 ${target}`
   return (
     <div className={`action-card ${action.tier === 'red' ? 'action-card--red' : ''}`}>
       <div className="action-card__head">
-        <span className="action-card__title">{isScheduled ? '预约转账计划' : isTransfer ? '转账计划' : isBudget ? '月度预算计划' : '取消代扣计划'}</span>
+        <span className="action-card__title">{isScheduled ? '预约转账计划' : isTransfer ? '转账计划' : isBudget ? '月度预算计划' : isClassification ? '账单分类修正' : '取消代扣计划'}</span>
         <span className={`tier tier--${action.tier}`}>
           {action.tier === 'red' ? '强验证' : '需确认'}
         </span>
       </div>
-      {isBudget ? (
+      {isClassification ? (
         <dl className="action-card__details">
-          <div><dt>预算月份</dt><dd>{action.details.month}</dd></div>
-          <div><dt>支出范围</dt><dd>{action.details.category || '全部支出'}</dd></div>
+          <div><dt>交易</dt><dd>{String(classifiedTransaction.counterparty)} · {String(classifiedTransaction.posted_on)} · {currency(String(classifiedTransaction.amount_yuan))}</dd></div>
+          <div><dt>统计分类</dt><dd>{String(action.details.previous_category)} → <strong>{String(action.details.category)}</strong></dd></div>
+          <div><dt>修正原因</dt><dd>{String(action.details.reason)}</dd></div>
+        </dl>
+      ) : isBudget ? (
+        <dl className="action-card__details">
+          <div><dt>预算月份</dt><dd>{String(action.details.month)}</dd></div>
+          <div><dt>支出范围</dt><dd>{String(action.details.category || '全部支出')}</dd></div>
           <div><dt>预算上限</dt><dd className="action-card__amount">{currency(String(action.details.amount_yuan))}</dd></div>
         </dl>
       ) : isTransfer ? (
         <dl className="action-card__details">
-          <div><dt>收款人</dt><dd>{action.details.recipient} · {action.details.phone_masked}</dd></div>
+          <div><dt>收款人</dt><dd>{String(action.details.recipient)} · {String(action.details.phone_masked)}</dd></div>
           <div><dt>金额</dt><dd className="action-card__amount">{currency(String(action.details.amount_yuan))}</dd></div>
-          <div><dt>备注</dt><dd>{action.details.note}</dd></div>
+          <div><dt>备注</dt><dd>{String(action.details.note)}</dd></div>
           {isScheduled && <><div><dt>执行时间</dt><dd>{formatBankTime(String(action.details.execute_at))}（北京时间）</dd></div><div><dt>执行窗口截至</dt><dd>{formatBankTime(String(action.details.window_expires_at))}</dd></div></>}
         </dl>
       ) : (
         <dl className="action-card__details">
-          <div><dt>商户</dt><dd>{action.details.merchant}</dd></div>
+          <div><dt>商户</dt><dd>{String(action.details.merchant)}</dd></div>
           <div><dt>每期扣费</dt><dd>{currency(String(action.details.amount_yuan))}</dd></div>
-          <div><dt>下次扣费</dt><dd>{action.details.renewal_on}</dd></div>
+          <div><dt>下次扣费</dt><dd>{String(action.details.renewal_on)}</dd></div>
         </dl>
       )}
       <div className="action-card__footer">
@@ -218,12 +232,12 @@ function ActionCard({
           {action.tier === 'red' && isScheduled ? (
             <p>当前预约仅支持单笔不超过 ¥1,000，请调整金额或选择即时转账。</p>
           ) : completed ? (
-            <p>{isScheduled ? '预约授权已保存。前往智能转账页“我的预约”查看实时执行状态。' : '操作已完成。结果已写入模拟账本与操作记录。'}</p>
+            <p>{isScheduled ? '预约授权已保存。前往智能转账页“我的预约”查看实时执行状态。' : isClassification ? '统计分类已更新；原始交易内容与金额仍保留。' : isBudget ? '预算已保存；没有冻结或划转资金。' : '操作已完成。结果已写入模拟账本与操作记录。'}</p>
           ) : (
             <>
               {action.tier === 'red' && !isScheduled && <DemoVerification actionId={action.id} sessionId={getSessionId()} onVerified={() => setVerified(true)} onReset={() => { setVerified(false); setReviewed(false) }} onBusyChange={setVerificationBusy} disabled={busy || completed} />}
               {verified && <p>已通过当前计划的模拟验证。</p>}
-              <label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /><span>我已核对{isScheduled ? '收款人、金额、备注与执行时间，授权到期自动转账' : isTransfer ? '收款人、金额与备注，同意执行此操作' : isBudget ? '预算月份、支出范围与上限；预算仅用于对照，不会冻结或划转资金' : '商户及代扣协议，同意执行此操作'}</span></label>
+              <label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /><span>我已核对{isScheduled ? '收款人、金额、备注与执行时间，授权到期自动转账' : isTransfer ? '收款人、金额与备注，同意执行此操作' : isBudget ? '预算月份、支出范围与上限；预算仅用于对照，不会冻结或划转资金' : isClassification ? '交易明细、新分类和修正原因；仅改变统计分类' : '商户及代扣协议，同意执行此操作'}</span></label>
               {isScheduled && <p className="schedule-consent">到期后 10 分钟内通过检查后自动执行，无需再次确认；不提前冻结余额。超时或检查失败均不自动重试。</p>}
               <p>待确认计划有效期 10 分钟；执行时会再次检查权限与状态。</p>
             </>
@@ -536,6 +550,7 @@ function App() {
                     />
                   )}
                   {item.reply?.choices && <div className="choice-note">{item.reply.choices.map((choice) => `${choice.name} ${choice.phone}`).join('　/　')}</div>}
+                  {item.reply?.classification_choices && <div className="recipient-choices" role="group" aria-label="选择要修正分类的交易">{item.reply.classification_choices.map((choice) => <button type="button" key={choice.id} disabled={busy} onClick={() => void sendMessage(`把交易 ${choice.id} 归类为${item.reply?.classification_category || '指定类别'}，原因是${item.reply?.classification_reason || '用户确认的分类纠正'}`)}>{choice.posted_on} · {choice.counterparty} · {currency(choice.amount_yuan)} · {choice.category}<span>选择此笔并预览修正 ↗</span></button>)}</div>}
                   {item.reply?.aa_draft && <button type="button" className="aa-quiet aa-chat-entry" onClick={() => openAa({ reply: item.reply })}>核对 AA 分摊草稿 ↗</button>}
                   {item.reply?.insight_query && <button type="button" className="aa-quiet" onClick={() => { setInsightQuestion(item.reply?.insight_query); window.location.hash = '/bills' }}>查看分析与交易依据 ↗</button>}
                   {item.reply?.workflow && <button type="button" className="aa-quiet" onClick={()=>{const target=item.reply!.workflow!;setWorkflowSeed(target);if(target.section)setTaskTab(target.section);window.location.hash=`/${target.view}`}}>打开{navigation.find(n=>n.view===item.reply?.workflow?.view)?.label}继续核对 ↗</button>}

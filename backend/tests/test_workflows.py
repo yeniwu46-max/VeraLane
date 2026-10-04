@@ -314,6 +314,19 @@ def test_read_only_bill_comparison_preserves_pending_transfer_context(client):
     assert completed["pending_action"]["details"]["amount_yuan"] == "300.00"
 
 
+def test_plain_bill_report_preserves_pending_transfer_context(client):
+    session_id = "plain-report-keeps-transfer-session"
+    partial = send(client, "转给林悦", session_id=session_id)
+    assert "pending_action" not in partial
+
+    report = send(client, "本月账单", session_id=session_id)
+    assert "report" in report
+
+    completed = send(client, "300元", session_id=session_id)
+    assert completed["pending_action"]["type"] == "transfer"
+    assert completed["pending_action"]["details"]["recipient"] == "林悦"
+
+
 def test_natural_language_category_budget_creates_confirmable_plan_and_updates_existing_budget(client):
     session_id = "budget-chat-session"
     original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
@@ -370,6 +383,71 @@ def test_natural_language_budget_does_not_erase_incomplete_transfer(client):
     completed = send(client, "300元", session_id=session_id)
     assert completed["pending_action"]["type"] == "transfer"
     assert completed["pending_action"]["details"]["recipient"] == "林悦"
+
+
+def test_chat_category_correction_requires_confirmation_and_preserves_original_transaction(client):
+    original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    prepared = send(client, "把交易 tx-8 归类为差旅，因为是出差打车")
+    action = prepared["pending_action"]
+    assert action["type"] == "bill_classification"
+    assert action["tier"] == "yellow"
+    assert action["details"]["transaction_id"] == "tx-8"
+    assert action["details"]["original_category"] == "交通"
+    assert action["details"]["category"] == "差旅"
+    assert action["details"]["transaction"]["amount_yuan"] == "235.00"
+    with db.db_session() as conn:
+        assert conn.execute("SELECT category FROM transactions WHERE id='tx-8'").fetchone()[0] == "交通"
+        assert conn.execute("SELECT 1 FROM bill_category_overrides WHERE transaction_id='tx-8'").fetchone() is None
+
+    result = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": "test-session"})
+    assert result.status_code == 200
+    assert result.json()["category"] == "差旅"
+    report = client.get("/api/bills?period=本月").json()
+    row = next(row for row in report["transactions"] if row["id"] == "tx-8")
+    assert row["category"] == "差旅"
+    assert row["original_category"] == "交通"
+    assert row["amount_yuan"] == "235.00"
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
+
+
+def test_chat_category_correction_uses_single_transaction_from_recent_bill_question(client):
+    report = send(client, "本月交通账单")
+    assert report["insight_report"]["transactions"]
+    assert [row["id"] for row in report["insight_report"]["transactions"]] == ["tx-8"]
+
+    correction = send(client, "这笔是差旅，不是交通")
+
+    assert correction["pending_action"]["type"] == "bill_classification"
+    assert correction["pending_action"]["details"]["transaction_id"] == "tx-8"
+    assert correction["pending_action"]["details"]["category"] == "差旅"
+
+
+def test_chat_category_correction_accepts_generated_transaction_ids(client):
+    transfer = send(client, "转给林悦80元")
+    result = client.post(
+        f"/api/actions/{transfer['pending_action']['id']}/confirm", json={"session_id": "test-session"},
+    )
+    assert result.status_code == 200
+    transaction_id = result.json()["transaction_id"]
+    assert transaction_id.startswith("transfer-")
+
+    correction = send(client, f"把交易 {transaction_id} 归类为差旅，因为是因公往来")
+
+    assert correction["pending_action"]["type"] == "bill_classification"
+    assert correction["pending_action"]["details"]["transaction_id"] == transaction_id
+    assert correction["pending_action"]["details"]["previous_category"] == "转账"
+
+
+def test_chat_category_correction_asks_for_transaction_when_merchant_is_ambiguous(client):
+    before = client.get("/api/overview").json()["account"]["balance_yuan"]
+    result = send(client, "把城市咖啡的消费改为差旅，因为是出差")
+
+    assert "pending_action" not in result
+    assert len(result["classification_choices"]) >= 2
+    assert {item["counterparty"] for item in result["classification_choices"]} == {"城市咖啡"}
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == before
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM bill_category_overrides").fetchone()[0] == 0
 
 
 def test_bill_exports_include_summary_and_transaction_details(client):

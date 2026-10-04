@@ -89,20 +89,72 @@ def _amount(value: str) -> int:
 
 
 def prepare_classification(session_id: str, transaction_id: str, category: str, reason: str) -> dict:
+    with db_session() as conn:
+        return prepare_classification_in_connection(conn, session_id, transaction_id, category, reason)
+
+
+def prepare_classification_in_connection(conn: sqlite3.Connection, session_id: str, transaction_id: str,
+                                         category: str, reason: str) -> dict:
     category = _category(category)
     if not reason.strip() or len(reason.strip()) > 200:
         raise HTTPException(422, "请填写 1–200 字的归类原因")
-    with db_session() as conn:
-        transaction = _transaction(conn, transaction_id)
-        previous = _override(conn, transaction_id)
-        if previous and previous["session_id"] != session_id:
-            raise HTTPException(404, "此交易的分类修改属于另一会话")
-        payload = {"transaction_id": transaction_id, "transaction": {**transaction, "amount_yuan": money(transaction["amount_cents"])},
-                   "transaction_snapshot": transaction, "original_category": transaction["category"],
-                   "previous_category": previous["category"] if previous else transaction["category"], "category": category,
-                   "reason": reason.strip(), "expected_version": previous["version"] if previous else 0, "previous": dict(previous) if previous else None}
-        action = create_action(conn, session_id, "bill_classification", "yellow", payload)
-        return {"mode": "offline", "message": "请核对这笔支出的新分类与原因。只修改统计分类，原始交易字段和金额保留。", "pending_action": action}
+    transaction = _transaction(conn, transaction_id)
+    previous = _override(conn, transaction_id)
+    if previous and previous["session_id"] != session_id:
+        raise HTTPException(404, "此交易的分类修改属于另一会话")
+    payload = {"transaction_id": transaction_id, "transaction": {**transaction, "amount_yuan": money(transaction["amount_cents"])},
+               "transaction_snapshot": transaction, "original_category": transaction["category"],
+               "previous_category": previous["category"] if previous else transaction["category"], "category": category,
+               "reason": reason.strip(), "expected_version": previous["version"] if previous else 0, "previous": dict(previous) if previous else None}
+    action = create_action(conn, session_id, "bill_classification", "yellow", payload)
+    return {"mode": "offline", "message": "请核对这笔支出的新分类与原因。只修改统计分类，原始交易字段和金额保留。", "pending_action": action}
+
+
+def parse_chat_classification_correction(text: str) -> dict[str, str] | None:
+    """Extract only explicit, supported classification corrections from chat text."""
+    value = r"([\u4e00-\u9fffA-Za-z0-9_-]{1,20})"
+    target = re.search(
+        rf"(?:分类(?:改为|设为|为)|归类(?:为|到)|归为|改(?:为|成)|记(?:为|作)|算作|属于)\s*[“\"「]?{value}",
+        text,
+    )
+    previous_category = None
+    if target is None:
+        contrast = re.search(
+            rf"(?:这笔|该笔|这条|该条|这笔消费|这笔支出|该交易)?\s*(?:应为|是|算|属于)\s*[“\"「]?{value}\s*[,，。]?\s*(?:不是|而非)\s*[“\"「]?{value}",
+            text,
+        )
+        if contrast is None:
+            return None
+        category, previous_category = contrast.group(1), contrast.group(2)
+    else:
+        category = target.group(1)
+
+    if category not in DEFAULT_CATEGORIES:
+        return None
+    command_markers = ("分类", "归类", "改", "纠正", "不是", "而非", "算作", "属于", "tx-")
+    if not any(marker in text for marker in command_markers):
+        return None
+
+    reason_match = re.search(r"(?:原因是|理由是|因为)\s*([^，,。；;]{1,200})", text)
+    if reason_match:
+        reason = reason_match.group(1).strip()
+    elif previous_category:
+        reason = f"用户明确指出应为“{category}”，不是“{previous_category}”。"
+    else:
+        reason = f"用户明确将该笔支出纠正为“{category}”。"
+
+    from .agent import extract_amount_text
+
+    transaction_id = re.search(r"(?<![\w])tx-[\w-]{1,96}(?![\w])", text)
+    transaction_date = re.search(r"(?<!\d)(20\d{2}-\d{2}-\d{2})(?!\d)", text)
+    amount_yuan = extract_amount_text(text)
+    return {
+        "category": category,
+        "reason": reason[:200],
+        "transaction_id": transaction_id.group(0) if transaction_id else "",
+        "transaction_date": transaction_date.group(1) if transaction_date else "",
+        "amount_yuan": amount_yuan or "",
+    }
 
 
 def execute_classification(conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict) -> dict:
