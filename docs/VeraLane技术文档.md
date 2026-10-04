@@ -44,7 +44,7 @@ flowchart LR
 
 | 路由前缀 | 核心端点 / 能力 |
 | --- | --- |
-| `/api/chat` | 自然语言意图、规则回复、账单问答、带确认的分类修正/月度预算计划及跨页面工作流跳转 |
+| `/api/chat` | 自然语言意图、规则回复、账单问答、带确认的分类修正/月度预算计划；支出目标会保存账单证据和计划，再通过 `workflow` 返回任务页、计划 ID 与原始表达供用户继续核对 |
 | `/api/transfers` | `/prepare`、联系人消歧、`/recurring/*` 有限周期、`/batch/*` 多收款人草稿/确认 |
 | `/api/aa` | `/interpret`、`/preview`、`/prepare`、收款单查询/关闭、显式模拟付款、`/installments` 分次回款、`/requests/{request_id}/refund/prepare` 回款退款；预览/建单可选择 `itemized_items` 按菜品分摊；多人结算支持 `/settlements/preview`、`/prepare`、保存计划查询和 `/settlements/{settlement_id}/legs/{leg_id}/prepare` 逐笔本人授权 |
 | `/api/insights`、`/api/bills` | 账单问答/报告与 CSV、JSON 导出 |

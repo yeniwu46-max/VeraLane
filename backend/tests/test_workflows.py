@@ -440,6 +440,27 @@ def test_chat_cash_forecast_lists_known_debits_and_authorized_transfers(client):
     assert result["cash_forecast"]["limitations"]
 
 
+def test_chat_spending_goal_routes_to_evidence_backed_plan_without_cancelling_subscriptions(client):
+    session_id = "chat-spending-plan-session"
+
+    result = send(client, "帮我看看上个月为什么花得多，再看看下个月能不能少花300元", session_id=session_id)
+
+    workflow = result["workflow"]
+    assert workflow["view"] == "tasks"
+    assert workflow["section"] == "plans"
+    assert workflow["message"] == "帮我看看上个月为什么花得多，再看看下个月能不能少花300元"
+    plan = client.get(f"/api/plans/{workflow['plan_id']}", params={"session_id": session_id}).json()
+    assert plan["target_yuan"] == "300.00"
+    assert plan["insight_report"]["period"] == "2026-08"
+    assert {step["status"] for step in plan["steps"][:2]} == {"completed"}
+    assert plan["steps"][2]["status"] == "awaiting_input"
+    assert plan["steps"][3]["status"] == "blocked"
+    assert "pending_action" not in result
+    with db.db_session() as conn:
+        assert [row["status"] for row in conn.execute("SELECT status FROM subscriptions ORDER BY id")] == ["active", "active"]
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE session_id=?", (session_id,)).fetchone()[0] == 0
+
+
 def test_chat_category_correction_requires_confirmation_and_preserves_original_transaction(client):
     original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
     prepared = send(client, "把交易 tx-8 归类为差旅，因为是出差打车")
