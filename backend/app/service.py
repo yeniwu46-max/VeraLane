@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from .agent import Intent, explicitly_declines_transfer, extract_amount_text, parse_intent
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
 from .clock import business_date, business_now
-from .schedule_time import instruction_text, parse_schedule
+from .schedule_time import chinese_number, instruction_text, parse_schedule
 from .execution_controls import available_cents, debit, require_verified, requires_red_tier
 
 
@@ -484,7 +484,10 @@ _TRANSFER_HISTORY_STATUS_QUESTION = re.compile(
     r"(?:为什么|为何|原因|怎么回事|怎么办).{0,24}(?:转账|转给|转过|汇给|打给|转出|转入).{0,24}(?:失败|拒绝|成功|没到账|未到账|到账)"
     r"|(?:转账|转给|转过|汇给|打给|转出|转入).{0,24}(?:失败|拒绝|成功|没到账|未到账|到账).{0,8}(?:吗|没有|没|原因|怎么|为何|为什么)"
 )
-_UNSUPPORTED_HISTORY_PERIOD = re.compile(r"上周|这周|本周|最近|近\s*[一二三四五六七八九十两\d]+|过去|下个月|本周以来|今年以来|去年以来")
+_UNSUPPORTED_HISTORY_PERIOD = re.compile(
+    r"这周|本周|下周|明天|后天|未来|最近|近\s*[一二三四五六七八九十两\d]+|过去|下个月|"
+    r"本周以来|今年以来|去年以来"
+)
 
 
 def _is_transfer_history_query(text: str) -> bool:
@@ -542,19 +545,18 @@ def _query_transfer_history(
             session_id, "offline", transaction_query={"type": "transfer_history", "transactions": []},
         )
 
-    if _UNSUPPORTED_HISTORY_PERIOD.search(text):
-        return reply(
-            "我暂时不能可靠地解析这个相对时间范围。请指定“本月”“上个月”“今年”“去年”、明确年月（如“2026年8月”）或明确日期。",
-            session_id, "offline",
-            transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
-        )
-
     with db_session() as conn:
         demo_day = date.fromisoformat(business_date(conn))
     period = _transfer_history_period(text, demo_day)
     if period and "error" in period:
         return reply(
             "查询中的日期无效。请指定有效的“2026年8月”或 YYYY-MM-DD 日期。",
+            session_id, "offline",
+            transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+        )
+    if period is None and _UNSUPPORTED_HISTORY_PERIOD.search(text):
+        return reply(
+            "我暂时不能可靠地解析这个相对时间范围。请指定“本月”“上个月”“今年”“去年”、明确年月（如“2026年8月”）或明确日期。",
             session_id, "offline",
             transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
         )
@@ -637,6 +639,20 @@ def _query_transfer_history(
 
 def _transfer_history_period(text: str, demo_day: date) -> dict[str, str] | None:
     """Return a conservative inclusive date range for supported history periods."""
+    if re.search(r"上周", text):
+        current_week_start = demo_day - timedelta(days=demo_day.weekday())
+        end = current_week_start - timedelta(days=1)
+        start = end - timedelta(days=6)
+        return {"label": "上周", "start": start.isoformat(), "end": end.isoformat()}
+
+    relative_days = re.search(r"(?:最近|近|过去)\s*([零〇一二三四五六七八九十两\d]+)\s*天", text)
+    if relative_days:
+        days = chinese_number(relative_days[1])
+        if not 1 <= days <= 90:
+            return None
+        start = demo_day - timedelta(days=days - 1)
+        return {"label": relative_days[0].strip(), "start": start.isoformat(), "end": demo_day.isoformat()}
+
     if re.search(r"上个月|上月", text):
         month = demo_day.month - 1
         year = demo_day.year

@@ -118,13 +118,51 @@ def test_transfer_history_query_applies_supported_relative_period(client):
 
 
 def test_transfer_history_query_clarifies_unsupported_relative_period(client):
-    for question in ("查一下上周转给林悦300元的记录", "查一下近三个月转给林悦300元的记录"):
+    for question in ("查一下最近转给林悦300元的记录", "查一下近三个月转给林悦300元的记录",
+                     "查一下最近91天转给林悦300元的记录", "查一下未来5天转账记录",
+                     "查一下下周转账记录"):
         result = send(client, question)
         assert "pending_action" not in result
         assert result["transaction_query"]["needs_clarification"] is True
         assert "暂时不能可靠地解析" in result["message"]
     with db.db_session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM audit WHERE event='transfer_history_queried'").fetchone()[0] == 0
+
+
+def test_transfer_history_query_supports_previous_calendar_week(client):
+    with db.db_session() as conn:
+        conn.executemany(
+            "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note) "
+            "VALUES (?, ?, ?, 'out', 30000, '林悦', '转账', '')",
+            [(f"tx-week-{day}", db.ACCOUNT_ID, day) for day in
+             ("2026-09-20", "2026-09-21", "2026-09-27", "2026-09-28")],
+        )
+
+    result = send(client, "查一下上周转给林悦300元的记录")
+
+    assert [row["id"] for row in result["transaction_query"]["transactions"]] == [
+        "tx-week-2026-09-27", "tx-week-2026-09-21",
+    ]
+    assert result["transaction_query"]["period"] == {
+        "label": "上周", "start": "2026-09-21", "end": "2026-09-27",
+    }
+
+
+@pytest.mark.parametrize(("phrase", "start"), [("最近7天", "2026-09-24"), ("过去三天", "2026-09-28")])
+def test_transfer_history_query_supports_bounded_recent_days(client, phrase, start):
+    with db.db_session() as conn:
+        conn.executemany(
+            "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note) "
+            "VALUES (?, ?, ?, 'out', 30000, '林悦', '转账', '')",
+            [(f"tx-recent-{day}", db.ACCOUNT_ID, day) for day in
+             ("2026-09-23", "2026-09-24", "2026-09-28", "2026-09-30")],
+        )
+
+    result = send(client, f"查一下{phrase}转给林悦300元的记录")
+
+    assert result["transaction_query"]["period"]["start"] == start
+    assert result["transaction_query"]["period"]["end"] == "2026-09-30"
+    assert all(row["posted_on"] >= start for row in result["transaction_query"]["transactions"])
 
 
 def test_transfer_history_query_uses_confirmed_contact_identity_for_duplicate_names(client):
