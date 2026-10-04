@@ -141,7 +141,7 @@ def post_batch(request: BatchRequest):
 
 @router.get('/reminders')
 def get_reminders(session_id: str = Query(min_length=1, max_length=100)):
-    with db_session() as conn:
+    with db_session(immediate=True) as conn:
         refresh_reminders(conn)
         from .aa import refresh_aa_reminders
         refresh_aa_reminders(conn)

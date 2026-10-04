@@ -137,6 +137,10 @@ class AaSettlementRequest(AaOwnerRequest):
     note: str = Field(default="多人垫付结算", max_length=100)
 
 
+class AaSettlementLegRequest(AaOwnerRequest):
+    pass
+
+
 class AaInstallmentRequest(AaOwnerRequest):
     amount_yuan: str = Field(min_length=1, max_length=30)
     idempotency_key: str = Field(min_length=1, max_length=100)
@@ -270,6 +274,27 @@ def prepare_aa(request: AaPlanRequest) -> dict:
 @app.post("/api/aa/settlements/preview")
 def preview_aa_settlement(request: AaSettlementRequest) -> dict:
     return aa_settlement.preview_for_session(request.contact_ids, [expense.model_dump() for expense in request.expenses], request.note)
+
+
+@app.post("/api/aa/settlements/prepare")
+def prepare_aa_settlement(request: AaSettlementRequest) -> dict:
+    return aa_settlement.prepare_for_session(request.session_id, request.contact_ids,
+                                            [expense.model_dump() for expense in request.expenses], request.note)
+
+
+@app.get("/api/aa/settlements")
+def list_aa_settlements(session_id: str = Query(min_length=1, max_length=100)) -> dict:
+    return aa_settlement.list_settlements(session_id)
+
+
+@app.get("/api/aa/settlements/{settlement_id}")
+def get_aa_settlement(settlement_id: str, session_id: str = Query(min_length=1, max_length=100)) -> dict:
+    return aa_settlement.get_settlement(settlement_id, session_id)
+
+
+@app.post("/api/aa/settlements/{settlement_id}/legs/{leg_id}/prepare")
+def prepare_aa_settlement_leg(settlement_id: str, leg_id: str, request: AaSettlementLegRequest) -> dict:
+    return aa_settlement.prepare_leg(settlement_id, leg_id, request.session_id)
 
 
 @app.get("/api/aa/collections")

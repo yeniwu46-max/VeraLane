@@ -146,6 +146,24 @@
 .aa-settlement-result li strong { color: var(--vl-ink); }
 .aa-settlement-result li b { margin-left: auto; color: #e8c780; font-variant-numeric: tabular-nums; }
 .aa-settlement-result > p { color: var(--vl-muted); font-size: 12px; line-height: 1.7; }
+.aa-settlement .action-card { margin-top: 18px; }
+.aa-settlement .action-card h4 { margin: 16px 0 8px; color: var(--vl-ink); font-size: 13px; }
+.aa-settlement .action-card ol { padding-left: 22px; color: var(--vl-muted); }
+.aa-settlement .action-card li { display: flex; flex-wrap: wrap; gap: 7px; padding: 7px 0; font-size: 12px; }
+.aa-settlement .action-card li strong { color: var(--vl-ink); }
+.aa-settlement .action-card li b { margin-left: auto; color: #e8c780; }
+.aa-saved-settlements { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--vl-line); }
+.aa-saved-settlements h3 { margin: 0; color: var(--vl-ink); font-size: 14px; }
+.aa-saved-settlement { margin-top: 14px; padding: 16px; border: 1px solid var(--vl-line); border-radius: 7px; background: #102137; }
+.aa-saved-settlement > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.aa-saved-settlement > header strong { display: block; color: var(--vl-ink); font-size: 13px; }
+.aa-saved-settlement > header small, .aa-saved-settlement li > small { display: block; margin-top: 5px; color: var(--vl-muted); font-size: 10px; overflow-wrap: anywhere; }
+.aa-saved-settlement ol { margin: 10px 0 0; padding-left: 22px; }
+.aa-saved-settlement li { padding: 10px 0; border-top: 1px solid var(--vl-line); color: var(--vl-muted); font-size: 12px; }
+.aa-saved-settlement li > div { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.aa-saved-settlement li > div strong { color: var(--vl-ink); }
+.aa-saved-settlement li > div b { margin-left: auto; color: #e8c780; font-variant-numeric: tabular-nums; }
+.aa-saved-settlement li > button { margin-top: 8px; }
 @media (max-width: 700px) {
   .transfer-tabs { width: 100%; }
   .transfer-tabs button { flex: 1; padding-inline: 8px; }

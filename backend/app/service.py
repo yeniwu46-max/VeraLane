@@ -434,7 +434,7 @@ def prepare_transfer(
         return reply("可用余额不足，未创建转账；已预留资金不能用于其他支出。", session_id, mode)
     sent_today = conn.execute(
         "SELECT COALESCE(SUM(amount_cents), 0) FROM transactions "
-        "WHERE account_id = ? AND posted_on = ? AND category = '转账' AND direction = 'out'",
+        "WHERE account_id = ? AND posted_on = ? AND category IN ('转账','AA结算') AND direction = 'out'",
         (ACCOUNT_ID, business_date(conn)),
     ).fetchone()[0]
     tier = "red" if (amount if schedule is not None else sent_today + amount) > 100_000 else "yellow"
@@ -543,6 +543,12 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
         elif row["type"] == "aa_refund":
             from .aa import execute_refund
             result = execute_refund(conn, action_id, session_id, payload)
+        elif row["type"] == "aa_settlement":
+            from .aa_settlement import execute_create
+            result = execute_create(conn, action_id, session_id, payload)
+        elif row["type"] == "aa_settlement_leg":
+            from .aa_settlement import execute_leg
+            result = execute_leg(conn, action_id, session_id, payload)
         elif row["type"] == "scheduled_transfer":
             from .schedules import create_schedule
             result = create_schedule(conn, action_id, session_id, payload)
@@ -610,7 +616,7 @@ def execute_transfer(
     amount = int(payload["amount_cents"])
     sent_today = conn.execute(
         "SELECT COALESCE(SUM(amount_cents), 0) FROM transactions "
-        "WHERE account_id = ? AND posted_on = ? AND category = '转账' AND direction = 'out'",
+        "WHERE account_id = ? AND posted_on = ? AND category IN ('转账','AA结算') AND direction = 'out'",
         (ACCOUNT_ID, business_date(conn)),
     ).fetchone()[0]
     if sent_today + amount > 100_000:

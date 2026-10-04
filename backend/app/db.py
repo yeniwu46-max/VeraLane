@@ -32,10 +32,10 @@ def connect() -> sqlite3.Connection:
 
 
 @contextmanager
-def db_session():
+def db_session(immediate: bool = False):
     conn = connect()
     try:
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         yield conn
         conn.commit()
     except Exception:
@@ -178,6 +178,27 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS aa_refunds_source ON aa_refunds(source_transaction_id);
+            CREATE TABLE IF NOT EXISTS aa_settlements (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending','owner_actions_complete')),
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS aa_settlement_legs (
+                id TEXT PRIMARY KEY,
+                settlement_id TEXT NOT NULL REFERENCES aa_settlements(id),
+                position INTEGER NOT NULL,
+                from_id TEXT NOT NULL,
+                to_id TEXT NOT NULL,
+                amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+                status TEXT NOT NULL CHECK(status IN ('pending','completed','external')),
+                pending_action_id TEXT UNIQUE REFERENCES actions(id),
+                transaction_id TEXT UNIQUE REFERENCES transactions(id),
+                completed_at TEXT,
+                UNIQUE(settlement_id, position)
+            );
+            CREATE INDEX IF NOT EXISTS aa_settlement_legs_settlement ON aa_settlement_legs(settlement_id,position);
             """
         )
         aa_columns = {row["name"] for row in conn.execute("PRAGMA table_info(aa_collections)")}
