@@ -207,9 +207,11 @@ def interpret(sid,message):
     # A missing card is not enough authority to choose a reversible lock or
     # irreversible loss report. Require an explicit choice before creating an action.
     if re.search(r'找不到|丢了|遗失|不见了', text) and not re.search(r'锁卡|冻结|挂失', text):
+        operations = ['report_loss'] if matches[0]['status'] == 'locked' else ['lock','report_loss']
+        next_step = '当前卡已临时锁定；可维持锁定，或选择正式挂失。' if matches[0]['status'] == 'locked' else '请选择临时锁卡或正式挂失；当前没有创建操作。'
         return {'status':'needs_clarification','mode':'offline',
-                'message':f"{matches[0]['name']}（尾号 {matches[0]['last4']}）找不到。请选择临时锁卡或正式挂失；当前没有创建操作。",
-                'decision_card':_public(matches[0]),'operation_choices':['lock','report_loss']}
+                'message':f"{matches[0]['name']}（尾号 {matches[0]['last4']}）找不到。{next_step}",
+                'decision_card':_public(matches[0]),'operation_choices':operations}
     op=next((op for words,op in [(['挂失'],'report_loss'),(['解锁','找到了'],'unlock'),(['关闭线上','禁止线上'],'online_off'),(['开启线上','恢复线上'],'online_on'),(['锁卡','冻结','找不到'],'lock')] if any(w in text for w in words)),None)
     if not op:
         return {'status':'needs_clarification','mode':'offline','message':'请说明锁卡、解锁、挂失或线上支付限制；额度调整请填写金额。'}

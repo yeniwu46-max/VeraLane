@@ -131,6 +131,11 @@ def test_missing_card_requires_explicit_lock_or_loss_choice():
     formal=cards.interpret('owner','6018卡不见了，正式挂失')
     assert formal['pending_action']['details']['operation']=='report_loss'
 
+    run(cards.prepare_update('owner','card-main','lock'))
+    locked=cards.interpret('owner','6018卡找不到了')
+    assert locked['operation_choices']==['report_loss']
+    assert '已临时锁定' in locked['message']
+
 
 def test_high_transfer_confirmation_bound_and_replay():
     p=direct_prepare_transfer('owner','contact-linyue','1200','验证')
