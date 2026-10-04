@@ -35,7 +35,7 @@ from .life_tasks_api import router as life_router
 from .aliases_api import router as aliases_router
 from .recurring_api import router as recurring_router
 from .bill_preferences_api import router as bill_preferences_router
-from .receipt_ocr import router as receipt_ocr_router
+from .receipt_ocr import MAX_MULTIPART_BODY_BYTES, router as receipt_ocr_router
 
 
 async def scheduler_loop():
@@ -105,6 +105,63 @@ app.include_router(aliases_router)
 app.include_router(recurring_router)
 app.include_router(bill_preferences_router)
 app.include_router(receipt_ocr_router)
+
+
+class ReceiptBodyLimitMiddleware:
+    """Reject oversized receipt requests before multipart parsing can spool them."""
+
+    def __init__(self, application):
+        self.application = application
+
+    async def __call__(self, scope, receive, send):
+        if (scope.get("type") != "http" or scope.get("path") != "/api/aa/ocr/receipt"
+                or scope.get("method") != "POST"):
+            await self.application(scope, receive, send)
+            return
+
+        content_length = next(
+            (value for name, value in scope.get("headers", []) if name.lower() == b"content-length"),
+            None,
+        )
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_MULTIPART_BODY_BYTES:
+                    await self._reject(send)
+                    return
+            except ValueError:
+                pass
+
+        received = 0
+
+        async def receive_bounded():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > MAX_MULTIPART_BODY_BYTES:
+                    raise _ReceiptBodyTooLarge
+            return message
+
+        try:
+            await self.application(scope, receive_bounded, send)
+        except _ReceiptBodyTooLarge:
+            await self._reject(send)
+
+    @staticmethod
+    async def _reject(send):
+        body = '{"detail":"小票上传请求过大；请将图片压缩至 900 KB 以内"}'.encode("utf-8")
+        await send({"type": "http.response.start", "status": 413, "headers": [
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ]})
+        await send({"type": "http.response.body", "body": body})
+
+
+class _ReceiptBodyTooLarge(Exception):
+    pass
+
+
+app.add_middleware(ReceiptBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

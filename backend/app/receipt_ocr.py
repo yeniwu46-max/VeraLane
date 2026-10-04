@@ -20,6 +20,8 @@ from PIL import Image, UnidentifiedImageError
 
 router = APIRouter(prefix="/api/aa", tags=["Local receipt OCR"])
 MAX_UPLOAD_BYTES = 900 * 1024
+# Keep total multipart bodies below Starlette's 1 MiB spooling threshold.
+MAX_MULTIPART_BODY_BYTES = MAX_UPLOAD_BYTES + 16 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 SUMMARY_WORDS = re.compile(r"小计|合计|总计|应付|应收|实付|实收|支付金额|找零|优惠|折扣|抹零|服务费|打包费")
