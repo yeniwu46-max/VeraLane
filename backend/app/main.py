@@ -23,7 +23,7 @@ from .service import (
     direct_prepare_transfer, overview, process_message, resolve_transfer_contact,
 )
 from .schedules import advance_to_next, cancel_schedule, list_schedules, run_due_transfers
-from . import aa
+from . import aa, aa_settlement
 from .subscription_intelligence import router as subscription_router
 from .insights_api import router as insights_router
 from .plans_api import router as plans_router
@@ -121,6 +121,19 @@ class AaPlanRequest(AaOwnerRequest):
     note: str = Field(default="AA 分摊", max_length=100)
     source_transaction_id: str | None = Field(default=None, max_length=200)
     shares_yuan: dict[str, str] | None = Field(default=None, max_length=8)
+
+
+class AaSettlementExpenseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_id: str = Field(min_length=1, max_length=100)
+    amount_yuan: str = Field(min_length=1, max_length=30)
+    note: str = Field(default="", max_length=100)
+
+
+class AaSettlementRequest(AaOwnerRequest):
+    contact_ids: list[str] = Field(min_length=1, max_length=7)
+    expenses: list[AaSettlementExpenseRequest] = Field(min_length=1, max_length=100)
+    note: str = Field(default="多人垫付结算", max_length=100)
 
 
 @app.get("/api/health")
@@ -241,6 +254,11 @@ def preview_aa(request: AaPlanRequest) -> dict:
 @app.post("/api/aa/prepare")
 def prepare_aa(request: AaPlanRequest) -> dict:
     return aa.prepare(request.model_dump())
+
+
+@app.post("/api/aa/settlements/preview")
+def preview_aa_settlement(request: AaSettlementRequest) -> dict:
+    return aa_settlement.preview_for_session(request.contact_ids, [expense.model_dump() for expense in request.expenses], request.note)
 
 
 @app.get("/api/aa/collections")

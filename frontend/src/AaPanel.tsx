@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AaEditor } from './AaEditor'
 import { AaCollectionDialog } from './AaCollectionDialog'
+import { AaSettlementPanel } from './AaSettlementPanel'
 import { aaMoney, aaRequest, aaStatusLabels, type AaCollection, type AaCollections, type AaContact, type AaSeed } from './aaApi'
 import './AaPanel.css'
 
@@ -41,6 +42,7 @@ export function AaPanel({ sessionId, contacts, seed, onChanged, onCreated }: {
   const activeCount = data?.collections.filter((collection) => collection.status === 'pending' || collection.status === 'partial').length || 0
   return <div className="aa-workspace">
     <AaEditor key={seed?.id || 'new-aa'} sessionId={sessionId} contacts={contacts} seed={seed} onCreated={(id) => { generation.current += 1; setSelectedId(id); setRevision((value) => value + 1); changed.current(); onCreated() }} />
+    <AaSettlementPanel sessionId={sessionId} contacts={contacts} />
     <section className="aa-collections" aria-labelledby="aa-collections-heading"><header className="aa-section-head"><div><h2 id="aa-collections-heading">我的 AA 收款单 <span>{activeCount} 笔进行中</span></h2><p>查看每个人的到账情况与回执。</p></div><button type="button" className="aa-quiet" onClick={() => setRevision((value) => value + 1)}>刷新</button></header>
       {error && <p className="error-banner" role="alert">{error}</p>}
       {!data && !error && <p className="aa-empty" role="status">正在读取收款单…</p>}

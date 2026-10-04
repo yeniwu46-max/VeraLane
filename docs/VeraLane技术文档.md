@@ -32,6 +32,7 @@ flowchart LR
 | `subscription_intelligence.py` / `plans.py` | 代扣周期诊断、提醒、逐项取消以及有版本的支出优化任务 |
 | `execution_controls.py` | 资金可用额、预留/消费/释放、红级挑战、验证和授权快照 |
 | `aliases.py` / `recurring.py` | 用户确认的收款人别名、相似付款提示、有限周期和批量转账 |
+| `aa_settlement.py` | 本地多人垫付的整数分净额计算和建议结算路径；不记账、不代转 |
 | `cards.py` | 虚构卡状态与实际模拟刷卡通道校验、申请/审批/发卡分态 |
 | `life_tasks.py` / `jobs.py` | 固定白名单生日订单流程、业务事件排序与演示时钟推进 |
 | `investments.py` | 固定虚构产品、风险问卷、申购持仓、赎回份额和到期结算 |
@@ -45,7 +46,7 @@ flowchart LR
 | --- | --- |
 | `/api/chat` | 自然语言意图、规则回复、账单问答及跨页面工作流跳转 |
 | `/api/transfers` | `/prepare`、联系人消歧、`/recurring/*` 有限周期、`/batch/*` 多收款人草稿/确认 |
-| `/api/aa` | `/interpret`、`/preview`、`/prepare`、收款单查询/关闭、显式模拟付款 |
+| `/api/aa` | `/interpret`、`/preview`、`/prepare`、收款单查询/关闭、显式模拟付款、`/settlements/preview` 多人垫付抵消 |
 | `/api/insights`、`/api/bills` | 账单问答/报告与 CSV、JSON 导出 |
 | `/api/subscriptions` | `/diagnostics`、`/prepare-batch`、提醒与逐项协议取消 |
 | `/api/plans` | 支出计划预览、版本选择、授权准备、失效、执行与取消 |
@@ -68,6 +69,8 @@ flowchart LR
 ### 4.2 AA 分摊
 
 AA 金额单位为分。系统仅创建请求，不从付款人账户扣款；自述垫付也不增加余额。均分余数按固定参与者顺序逐分分配；手工份额必须覆盖参与人且合计等于总额。只有显式触发的模拟回款写收入交易，并以请求 ID 唯一约束避免重复入账。
+
+多人垫付预览接受 2–8 位参与者与最多 100 笔明确付款记录。先把每笔金额转为整数分，再按参与者顺序分配均分余数；每人的净额为“累计实付 − 应摊”。债务人与债权人按固定顺序贪心抵消，输出净额一致的建议转账路径。该接口只计算、不保存、不记账、不通知联系人；所有联系人必须来自本地已验证名单。当前不支持 OCR 识别或按建议自动创建转账。
 
 ### 4.3 代扣诊断和优化计划
 
