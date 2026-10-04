@@ -12,10 +12,11 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, Request, Response, Query
+from fastapi import FastAPI, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.datastructures import MutableHeaders
 
 from .db import init_db, ROOT
 from .service import (
@@ -63,21 +64,34 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="VeraLane Demo API", version="0.2.0", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
-        "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
-    )
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if request.url.scheme == "https":
-        response.headers["Strict-Transport-Security"] = "max-age=31536000"
-    return response
+class SecurityHeadersMiddleware:
+    """Wrap the full ASGI stack so framework-generated 500 responses are covered."""
+
+    def __init__(self, application):
+        self.application = application
+
+    def __getattr__(self, name):
+        # Keep FastAPI inspection helpers available to tests and local tooling.
+        return getattr(self.application, name)
+
+    async def __call__(self, scope, receive, send):
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["Content-Security-Policy"] = (
+                    "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+                    "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
+                )
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+                if scope.get("scheme") == "https":
+                    headers["Strict-Transport-Security"] = "max-age=31536000"
+            await send(message)
+
+        await self.application(scope, receive, send_with_security_headers)
 
 
 app.include_router(subscription_router)
@@ -359,3 +373,5 @@ def prepare_aa_refund(request_id: str, request: AaRefundRequest) -> dict:
 # Registered last: API routes take precedence. Only the built public UI is served.
 if (ROOT / 'frontend' / 'dist' / 'index.html').is_file():
     app.mount('/', StaticFiles(directory=ROOT / 'frontend' / 'dist', html=True), name='frontend')
+
+app = SecurityHeadersMiddleware(app)

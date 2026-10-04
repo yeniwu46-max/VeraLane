@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.routing import APIRoute
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 
@@ -172,7 +173,9 @@ def test_production_static_mount_is_only_public_dist_and_keeps_api_priority(clie
         assert "strict-transport-security" not in response.headers
     # Inspect response statuses only: never print or retain a potential secret body.
     for path in ("/.env", "/backend/.env", "/data/veralane.sqlite3", "/backend/data/veralane.sqlite3", "/%2e%2e/.env", "/%2e%2e/%2e%2e/backend/data/veralane.sqlite3"):
-        assert client.get(path).status_code == 404, path
+        missing = client.get(path)
+        assert missing.status_code == 404, path
+        assert missing.headers["x-content-type-options"] == "nosniff"
 
 
 def test_hsts_is_emitted_only_for_https_requests():
@@ -180,3 +183,21 @@ def test_hsts_is_emitted_only_for_https_requests():
     response = secure_client.get("/api/health")
     assert response.status_code == 200
     assert response.headers["strict-transport-security"] == "max-age=31536000"
+
+
+def test_unhandled_server_errors_keep_security_response_headers(client):
+    def fail_unhandled():
+        raise RuntimeError("private internal diagnostic")
+
+    route = APIRoute("/api/test/unhandled-error", fail_unhandled, methods=["GET"])
+    mount_index = next(index for index, item in enumerate(main.app.routes) if isinstance(item, Mount))
+    main.app.router.routes.insert(mount_index, route)
+    try:
+        response = TestClient(main.app, raise_server_exceptions=False).get("/api/test/unhandled-error")
+    finally:
+        main.app.router.routes.remove(route)
+    assert response.status_code == 500
+    assert response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "private internal diagnostic" not in response.text
