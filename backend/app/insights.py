@@ -12,10 +12,14 @@ from typing import Any
 
 from .clock import business_date
 from .db import ACCOUNT_ID, USER_ID, audit, db_session
+from .schedule_time import chinese_number
 
 
 RULE_VERSION = "insights-1.0"
-PERIOD_RE = re.compile(r"上个月|这个月|本月|上月|今年|去年|\d{4}-\d{2}(?!\d)")
+PERIOD_RE = re.compile(
+    r"(?<!上)上周(?!末|[一二三四五六日天])|(?:最近|近|过去)\s*[零〇一二三四五六七八九十两\d]+\s*天|"
+    r"(?<!上)上个月|这个月|本月|(?<!上)上月|今年|去年|\d{4}-\d{2}(?!\d)"
+)
 AMBIGUOUS_TIME_RE = re.compile(r"最近|近期|之前|以后|昨天|今天|明天|前天|去年同期|前年|明年|周|星期|季度|半年|个月内|\d{4}年|\d{1,2}月|\d{4}-\d{2}-\d{2}")
 CATEGORY_ALIASES = {"吃饭": "餐饮", "饮食": "餐饮", "交通费": "交通", "住房": "居住", "会员": "数字服务"}
 BASE_CATEGORIES = {"餐饮", "交通", "居住", "日用", "数字服务", "转账", "购物", "医疗", "教育", "娱乐", "旅行"}
@@ -32,6 +36,21 @@ def _month_start_previous(day: date) -> date:
 
 def _period_dates(period: str, today: date) -> tuple[date, date, date, date, str]:
     period = {"这个月": "本月", "上月": "上个月"}.get(period, period)
+    if period == "上周":
+        current_week_start = today - timedelta(days=today.weekday())
+        end = current_week_start - timedelta(days=1)
+        start = end - timedelta(days=6)
+        previous_end = start - timedelta(days=1)
+        return start, end, previous_end - timedelta(days=6), previous_end, period
+    relative_days = re.fullmatch(r"(?:最近|近|过去)\s*([零〇一二三四五六七八九十两\d]+)\s*天", period)
+    if relative_days:
+        days = chinese_number(relative_days[1])
+        if not 1 <= days <= 90:
+            raise ValueError("相对日期范围须为 1 至 90 天，请重新指定。")
+        end = today
+        start = end - timedelta(days=days - 1)
+        previous_end = start - timedelta(days=1)
+        return start, end, previous_end - timedelta(days=days - 1), previous_end, period.strip()
     if period in ("今年", "去年"):
         year = today.year - (period == "去年")
         start = date(year, 1, 1)
@@ -67,7 +86,7 @@ def parse_question(conn: sqlite3.Connection, text: str, default_period: str = "�
         raise ValueError("请输入要查询的支出问题。")
     today = date.fromisoformat(business_date(conn))
     _period_dates(default_period, today)
-    if AMBIGUOUS_TIME_RE.search(text):
+    if AMBIGUOUS_TIME_RE.search(PERIOD_RE.sub("", text)):
         raise ValueError("这个时间范围还不能精确解析，请改为本月、上个月、今年、去年，或 YYYY-MM。")
     periods = list(dict.fromkeys(PERIOD_RE.findall(text)))
     canonical = [{"这个月": "本月", "上月": "上个月"}.get(value, value) for value in periods]

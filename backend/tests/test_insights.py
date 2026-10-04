@@ -1,6 +1,6 @@
 """Money, period, finite grammar and evidence invariants for bill insights."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import FastAPI
@@ -61,7 +61,8 @@ def test_amount_boundaries_keep_integer_cents(client):
 
 
 @pytest.mark.parametrize("text", [
-    "最近三个月餐饮花多少", "上周餐饮花多少", "昨天花多少", "2026年9月花多少", "2026-09-12花多少",
+    "最近三个月餐饮花多少", "上上周餐饮花多少", "上周末餐饮花多少", "最近91天餐饮花多少",
+    "昨天花多少", "2026年9月花多少", "2026-09-12花多少",
     "本月餐饮不少于50元", "本月餐饮超过1.001元", "本月餐饮超过200元小于100元",
     "去年和上个月比较", "本月收入多少", "本月微信支付花多少", "本月按银行卡统计", "   ",
     "本月商户不存在花多少", "本月超过-1元的消费",
@@ -70,6 +71,44 @@ def test_unsupported_constraints_never_widen_silently(client, text):
     result = ask(client, text)
     assert result["status"] == "needs_clarification"
     assert "report" not in result
+
+
+def test_natural_week_query_uses_previous_calendar_week_and_equal_length_comparison(client):
+    with db.db_session() as conn:
+        add_tx(conn, "week-before", "2026-09-20", 9900)
+        add_tx(conn, "week-start", "2026-09-21", 1000)
+        add_tx(conn, "week-end", "2026-09-27", 2000)
+        add_tx(conn, "week-after", "2026-09-28", 8800)
+
+    result = ask(client, "上周餐饮花多少")
+
+    assert result["status"] == "ok"
+    report = result["report"]
+    assert (report["start_date"], report["end_date"]) == ("2026-09-21", "2026-09-27")
+    assert [tx["id"] for tx in report["transactions"]] == ["week-end", "week-start"]
+    assert report["total_yuan"] == "30.00"
+    assert (report["comparison"]["previous_start"], report["comparison"]["previous_end"]) == (
+        "2026-09-14", "2026-09-20",
+    )
+    assert report["comparison"]["equal_days"] == 7
+
+
+@pytest.mark.parametrize(("phrase", "start"), [("最近7天", "2026-09-24"), ("过去三天", "2026-09-28")])
+def test_natural_recent_days_query_has_bounded_inclusive_range(client, phrase, start):
+    with db.db_session() as conn:
+        add_tx(conn, "recent-before", "2026-09-23", 9900)
+        add_tx(conn, "recent-start", start, 1000)
+        add_tx(conn, "recent-today", "2026-09-30", 2000)
+
+    result = ask(client, f"{phrase}测试商户餐饮花多少")
+
+    assert result["status"] == "ok"
+    report = result["report"]
+    assert (report["start_date"], report["end_date"]) == (start, "2026-09-30")
+    assert [tx["id"] for tx in report["transactions"]] == ["recent-today", "recent-start"]
+    days = (date.fromisoformat("2026-09-30") - date.fromisoformat(start)).days + 1
+    assert report["comparison"]["equal_days"] == days
+    assert report["comparison"]["previous_end"] == (date.fromisoformat(start) - timedelta(days=1)).isoformat()
 
 
 def test_default_context_period_and_explicit_override(client):
