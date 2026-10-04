@@ -119,6 +119,19 @@ def test_no_invented_card_or_relationship():
     assert p['pending_action']['details']['card_id']=='card-main'
 
 
+def test_missing_card_requires_explicit_lock_or_loss_choice():
+    result=cards.interpret('owner','6018卡找不到了')
+    assert result['status']=='needs_clarification'
+    assert result['decision_card']['id']=='card-main'
+    assert result['operation_choices']==['lock','report_loss']
+    assert 'pending_action' not in result
+
+    temporary=cards.interpret('owner','6018卡找不到了，锁卡')
+    assert temporary['pending_action']['details']['operation']=='lock'
+    formal=cards.interpret('owner','6018卡不见了，正式挂失')
+    assert formal['pending_action']['details']['operation']=='report_loss'
+
+
 def test_high_transfer_confirmation_bound_and_replay():
     p=direct_prepare_transfer('owner','contact-linyue','1200','验证')
     aid=p['pending_action']['id']

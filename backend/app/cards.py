@@ -204,6 +204,12 @@ def interpret(sid,message):
     matches=[c for c in cards if c['last4'] in text or c['name'] in text]
     if len(matches)!=1:
         return {'status':'needs_clarification','mode':'offline','message':'请选择卡号尾号，并明确临时锁卡或正式挂失；两种操作影响不同。','choices':[_public(c) for c in cards]}
+    # A missing card is not enough authority to choose a reversible lock or
+    # irreversible loss report. Require an explicit choice before creating an action.
+    if re.search(r'找不到|丢了|遗失|不见了', text) and not re.search(r'锁卡|冻结|挂失', text):
+        return {'status':'needs_clarification','mode':'offline',
+                'message':f"{matches[0]['name']}（尾号 {matches[0]['last4']}）找不到。请选择临时锁卡或正式挂失；当前没有创建操作。",
+                'decision_card':_public(matches[0]),'operation_choices':['lock','report_loss']}
     op=next((op for words,op in [(['挂失'],'report_loss'),(['解锁','找到了'],'unlock'),(['关闭线上','禁止线上'],'online_off'),(['开启线上','恢复线上'],'online_on'),(['锁卡','冻结','找不到'],'lock')] if any(w in text for w in words)),None)
     if not op:
         return {'status':'needs_clarification','mode':'offline','message':'请说明锁卡、解锁、挂失或线上支付限制；额度调整请填写金额。'}
