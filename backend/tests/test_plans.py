@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app import db, plans, subscription_intelligence
+from app.history_fixture import load_history_fixture
 from app.plans_api import PlanOwner, router
 from app.service import confirm_action
 
@@ -63,6 +64,8 @@ def test_preview_actual_evidence_and_no_side_effects(client):
     assert plan["period_start"] == "2026-10-01"
     assert plan["period_end"] == "2026-10-31"
     assert plan["insight_report"]["period"] == "2026-08"
+    assert "比较基期" in plan["insight_summary"]
+    assert "无法判断支出变化原因" in plan["insight_summary"]
     assert len(plan["steps"]) == 4
     assert plan["steps"][2]["status"] == "awaiting_input"
     assert {option["subscription_id"] for option in plan["options"]} == {"sub-cloud", "sub-music"}
@@ -71,6 +74,18 @@ def test_preview_actual_evidence_and_no_side_effects(client):
     assert states() == {"sub-cloud": "active", "sub-music": "active"}
     with db.db_session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM actions").fetchone()[0] == 0
+
+
+def test_preview_explains_change_when_historical_comparison_evidence_exists(client):
+    with db.db_session() as conn:
+        assert load_history_fixture(conn) == 32
+
+    plan = preview(client, "帮我看看上个月为什么花得多，再看看下个月能不能少花300元")["plan"]
+
+    assert plan["insight_report"]["comparison"]["previous_total_yuan"] == "602.00"
+    assert "支出增加 ¥58.00" in plan["insight_summary"]
+    assert "金额变化最大的分类是餐饮，增加 ¥85.00" in plan["insight_summary"]
+    assert "无法判断支出变化原因" not in plan["insight_summary"]
 
 
 @pytest.mark.parametrize("message", ["下个月省钱", "少花300元", "下个月少花0元", "下个月少花1.001元", "下个月少花300元或200元", "下周少花300元", "下个月少花300元保留音乐", "下个月少花300元，不取消任何订阅", "下个月少花300元，再转给林悦100元"])

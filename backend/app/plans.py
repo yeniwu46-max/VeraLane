@@ -106,6 +106,19 @@ def preview_plan(session_id: str, message: str) -> dict[str, Any]:
         return {"status": "needs_clarification", "mode": "offline", "message": str(exc), "clarification": str(exc)}
     with db_session() as conn:
         report = build_report(conn, {"period": query_period})
+        comparison = report["comparison"]
+        previous_evidence = [
+            tx for tx in comparison["transactions"]
+            if comparison["previous_start"] <= tx["posted_on"] <= comparison["previous_end"]
+        ]
+        insight_summary = report["summary"]
+        if not report["transaction_count"]:
+            insight_summary += "本期没有匹配账单流水，当前无法解释支出变化。"
+        elif not previous_evidence:
+            insight_summary += (
+                f"比较基期 {comparison['previous_start']} 至 {comparison['previous_end']} 没有匹配流水，"
+                "无法判断支出变化原因；当前只展示本期汇总。"
+            )
         diagnostics = diagnosis(conn)
         by_id = {item["subscription_id"]: item for item in diagnostics["items"] if item["subscription_id"]}
         today = date.fromisoformat(business_date(conn))
@@ -116,7 +129,7 @@ def preview_plan(session_id: str, message: str) -> dict[str, Any]:
             options.append({**_snapshot(sub), "eligible_in_period": str(first) <= sub["renewal_on"] <= str(last),
                             "evidence": by_id.get(sub["id"], {}).get("evidence", [])})
         draft = {"goal": message, "target_cents": target, "period_start": str(first), "period_end": str(last),
-                 "options": options, "insight_summary": report["summary"], "insight_report": report,
+                 "options": options, "insight_summary": insight_summary, "insight_report": report,
                  "insight_evidence_ids": list(dict.fromkeys(tx["id"] for tx in report["comparison"]["transactions"]))}
         plan_id, now = "plan-" + secrets.token_urlsafe(15), utc_now()
         conn.execute("INSERT INTO spending_plans(id,account_id,session_id,version,status,draft_json,created_at,updated_at) VALUES(?,?,?,1,'draft',?,?,?)",

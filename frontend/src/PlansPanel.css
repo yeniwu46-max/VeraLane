@@ -39,6 +39,13 @@
 .plans-panel__steps h3 { font-size: 13px; margin: 0; }
 .plans-panel__steps small { color: var(--vl-muted); font-size: 10px; }
 .plans-panel__steps p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 8px 0; }
+.plans-panel__steps .plans-panel__comparison { color: var(--vl-blue); }
+.plans-panel__steps .plans-panel__comparison--missing { color: var(--vl-gold); }
+.plans-panel__analysis { margin: 8px 0 12px; border-left: 2px solid var(--vl-line); padding: 4px 0 4px 10px; color: var(--vl-muted); font-size: 10px; line-height: 1.7; }
+.plans-panel__analysis > summary { cursor: pointer; color: var(--vl-blue); }
+.plans-panel__analysis > p { margin: 6px 0; }
+.plans-panel__analysis ul { margin: 6px 0; padding-left: 16px; }
+.plans-panel__analysis li + li { margin-top: 4px; }
 .plans-panel__options { border-top: 1px solid var(--vl-line); padding-top: 16px; }
 .plans-panel__options > h3, .plans-panel__results h3 { font-size: 14px; margin: 0 0 12px; }
 .plans-panel__options article { padding: 12px 0; border-bottom: 1px solid var(--vl-line); }
