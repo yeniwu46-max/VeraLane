@@ -121,6 +121,7 @@ class AaPlanRequest(AaOwnerRequest):
     note: str = Field(default="AA 分摊", max_length=100)
     source_transaction_id: str | None = Field(default=None, max_length=200)
     shares_yuan: dict[str, str] | None = Field(default=None, max_length=8)
+    shares_ratio: dict[str, int] | None = Field(default=None, max_length=8)
 
 
 class AaSettlementExpenseRequest(BaseModel):

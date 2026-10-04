@@ -19,13 +19,17 @@ export type AaPreview = {
   source_transaction: AaSource | null
   source_type: 'ledger' | 'user'
   reminder_on: string
-  participants: { id: string; name: string; phone_masked: string; amount_yuan: string; rounding_extra: boolean }[]
+  allocation_method: 'equal' | 'proportional' | 'manual'
+  share_ratios: Record<string, number> | null
+  participants: { id: string; name: string; phone_masked: string; amount_yuan: string; rounding_extra: boolean; share_ratio: number | null }[]
 }
 export type AaAction = { id: string; type: 'aa_collection'; tier: 'yellow' | 'red'; status: 'pending'; expires_at: string; details: AaPreview }
 export type AaReply = { session_id: string; message: string; mode: 'offline' | 'deepseek'; aa_draft?: AaDraft; pending_action?: AaAction }
 export type AaCollection = {
   id: string
   status: 'pending' | 'partial' | 'completed' | 'closed'
+  allocation_method: 'equal' | 'proportional' | 'manual' | null
+  share_ratios: Record<string, number> | null
   note: string
   total_yuan: string
   self_yuan: string
@@ -38,7 +42,7 @@ export type AaCollection = {
   created_at: string
   closed_at: string | null
   participants: {
-    id: string; request_id: string | null; name: string; phone_masked: string; amount_yuan: string
+    id: string; request_id: string | null; name: string; phone_masked: string; amount_yuan: string; share_ratio?: number | null
     status: 'self' | 'not_required' | 'pending' | 'partial' | 'paid' | 'closed'
     received_yuan: string; outstanding_yuan: string
     payments: { amount_yuan: string; transaction_id: string; paid_at: string }[]
@@ -48,7 +52,7 @@ export type AaCollection = {
 export type AaCollections = { collections: AaCollection[]; demo_controls_enabled: boolean }
 export type AaFormPayload = {
   session_id: string; total_yuan: string; contact_ids: string[]; include_self: boolean; note: string
-  source_transaction_id: string | null; shares_yuan?: Record<string, string>
+  source_transaction_id: string | null; shares_yuan?: Record<string, string>; shares_ratio?: Record<string, number>
 }
 export type AaSeed = { id: string; draft?: AaDraft; source?: AaSource; message?: string; mode?: 'offline' | 'deepseek' }
 

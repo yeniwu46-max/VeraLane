@@ -162,23 +162,50 @@ def build_preview(conn: sqlite3.Connection, data: dict) -> dict:
         participants.append({"id": row["id"], "name": row["name"], "phone_masked": mask_phone(row["phone"]),
                              "contact_fingerprint": contact_fingerprint(row)})
     shares = data.get("shares_yuan")
-    if shares is not None:
+    ratios = data.get("shares_ratio")
+    if shares is not None and ratios is not None:
+        raise HTTPException(422, "金额份额与比例份额不能同时提交")
+    share_ratios = None
+    if ratios is not None:
+        if set(ratios) != {row["id"] for row in participants}:
+            raise HTTPException(422, "按比例分摊时必须为本人及全部参与人提供比例值")
+        weights = [ratios[row["id"]] for row in participants]
+        if any(type(weight) is not int or weight < 0 or weight > 1_000_000 for weight in weights):
+            raise HTTPException(422, "比例值须为 0 到 1000000 的整数")
+        weight_total = sum(weights)
+        if weight_total == 0:
+            raise HTTPException(422, "至少一位参与人的比例值须大于 0")
+        divided = [divmod(total * weight, weight_total) for weight in weights]
+        amounts = [whole for whole, _ in divided]
+        remainder_order = sorted(range(len(participants)), key=lambda index: (-divided[index][1], index))
+        leftover = total - sum(amounts)
+        extras = [False] * len(participants)
+        for index in remainder_order[:leftover]:
+            amounts[index] += 1
+            extras[index] = True
+        allocation_method = "proportional"
+        share_ratios = {row["id"]: ratios[row["id"]] for row in participants}
+    elif shares is not None:
         if set(shares) != {row["id"] for row in participants}:
             raise HTTPException(422, "调整份额时必须提交本人及全部参与人的金额")
         amounts = [share_cents(shares[row["id"]]) for row in participants]
         if sum(amounts) != total:
             raise HTTPException(422, f"份额合计与总额相差 ¥{money(total - sum(amounts))}，请调整后再生成计划")
         extras = [False] * len(participants)
+        allocation_method = "manual"
     else:
         base, remainder = divmod(total, len(participants))
         amounts = [base + (index < remainder) for index in range(len(participants))]
         extras = [index < remainder for index in range(len(participants))]
+        allocation_method = "equal"
     for index, participant in enumerate(participants):
-        participant.update(amount_yuan=money(amounts[index]), amount_cents=amounts[index], rounding_extra=extras[index])
+        participant.update(amount_yuan=money(amounts[index]), amount_cents=amounts[index], rounding_extra=extras[index],
+                            share_ratio=share_ratios[participant["id"]] if share_ratios is not None else None)
     return {"total_yuan": money(total), "total_cents": total,
             "self_yuan": money(amounts[0]), "receivable_yuan": money(total - amounts[0]),
             "note": (data.get("note") or "AA 分摊")[:100], "source_transaction": source,
             "source_type": "ledger" if source else "user", "participants": participants,
+            "allocation_method": allocation_method, "share_ratios": share_ratios,
             "reminder_on": (date.fromisoformat(business_date(conn)) + timedelta(days=3)).isoformat()}
 
 
@@ -201,8 +228,13 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
     people = payload["participants"]
     data = {"total_yuan": payload["total_yuan"], "include_self": True, "note": payload["note"],
             "contact_ids": [person["id"] for person in people if person["id"] != "self"],
-            "source_transaction_id": (payload["source_transaction"] or {}).get("id"),
-            "shares_yuan": {person["id"]: person["amount_yuan"] for person in people}}
+            "source_transaction_id": (payload["source_transaction"] or {}).get("id")}
+    if payload["allocation_method"] == "proportional":
+        data["shares_ratio"] = payload["share_ratios"]
+    elif payload["allocation_method"] == "manual":
+        data["shares_yuan"] = {person["id"]: person["amount_yuan"] for person in people}
+    elif payload["allocation_method"] != "equal":
+        raise HTTPException(409, "分摊方式已变化，请重新生成计划")
     fresh = build_preview(conn, data)
     if any(a.get("contact_fingerprint") != b.get("contact_fingerprint") for a, b in zip(people, fresh["participants"])):
         raise HTTPException(409, "参与人信息已变化，请重新核对分摊计划")
@@ -210,6 +242,8 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
         raise HTTPException(409, "原始支出信息已变化，请重新生成分摊计划")
     if payload["reminder_on"] != fresh["reminder_on"]:
         raise HTTPException(409, "演示日期已变化，请重新核对站内提醒日期")
+    if payload["allocation_method"] != fresh["allocation_method"] or payload["share_ratios"] != fresh["share_ratios"]:
+        raise HTTPException(409, "分摊方式或比例已变化，请重新核对计划")
     if (payload["total_cents"] != fresh["total_cents"] or payload["self_yuan"] != fresh["self_yuan"]
             or payload["receivable_yuan"] != fresh["receivable_yuan"]
             or any(a["amount_cents"] != b["amount_cents"] for a, b in zip(people, fresh["participants"]))):
@@ -292,6 +326,7 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
             status = request["status"] if request["status"] in ("paid", "closed") else "partial" if request_received else "pending"
         participants.append({"id": person["id"], "name": person["name"], "phone_masked": person["phone_masked"],
                              "amount_yuan": person["amount_yuan"], "request_id": request["id"] if request else None,
+                             "share_ratio": person.get("share_ratio"),
                              "status": status, "received_yuan": money(request_received),
                              "outstanding_yuan": money((request["amount_cents"] - request_received) if request else 0),
                              "payments": request_payments,
@@ -299,6 +334,7 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
                              "transaction_id": request["transaction_id"] if request else None})
     return {"id": row["id"], "status": row["status"], "created_at": row["created_at"], "closed_at": row["closed_at"],
             **{key: payload[key] for key in ("note", "total_yuan", "self_yuan", "receivable_yuan", "source_transaction", "source_type")},
+            "allocation_method": payload.get("allocation_method"), "share_ratios": payload.get("share_ratios"),
             "received_yuan": money(received), "outstanding_yuan": money(target - received),
             "net_advance_yuan": money(payload["total_cents"] - received), "participants": participants}
 

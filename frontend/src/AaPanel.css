@@ -46,6 +46,12 @@
 .aa-row-controls { display: flex; gap: 4px; padding-bottom: 3px; }
 .aa-caption, .aa-empty { color: var(--vl-muted); font-size: 12px; line-height: 1.7; }
 .aa-empty { padding: 8px 0; margin: 0; }
+.aa-allocation-modes { display: flex; gap: 8px; margin-top: 18px; }
+.aa-allocation-modes button[aria-pressed="true"] { border-color: var(--vl-blue); background: #25415f; color: var(--vl-ink); }
+.aa-ratio-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 14px; margin-top: 10px; border: 1px solid var(--vl-line); border-radius: 6px; background: #102137; }
+.aa-ratio-list p { grid-column: 1 / -1; margin: 0; color: var(--vl-muted); font-size: 11px; line-height: 1.6; }
+.aa-ratio-list label { color: var(--vl-muted); font-size: 11px; }
+.aa-ratio-list input { display: block; width: 100%; min-height: 38px; margin-top: 6px; padding: 7px 9px; border: 1px solid #4b6689; border-radius: 5px; background: #0e1c2e; color: var(--vl-ink); font: inherit; }
 .aa-review-note { padding: 12px 16px; margin-top: 16px; background: #332d2b; border: 1px solid #705b40; border-radius: 6px; }
 .aa-review-note ul { padding-left: 16px; margin: 0 0 12px; color: #e7c594; font-size: 12px; line-height: 1.8; }
 .aa-calculate, .aa-prepare { display: inline-flex; width: auto; min-width: 180px; margin-top: 20px; padding-inline: 20px; }

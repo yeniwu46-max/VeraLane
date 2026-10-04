@@ -23,6 +23,8 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false)
   const [preview, setPreview] = useState<AaPreview | null>(null)
   const [shares, setShares] = useState<Record<string, string>>({})
+  const [ratioValues, setRatioValues] = useState<Record<string, string>>({})
+  const [allocationMode, setAllocationMode] = useState<'equal' | 'proportional' | 'manual'>('equal')
   const [action, setAction] = useState<AaAction | null>(null)
   const [reviewed, setReviewed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -30,8 +32,11 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
   const [notice, setNotice] = useState('')
 
   function invalidate() { setPreview(null); setAction(null); setReviewed(false); setReviewAcknowledged(false); setError(''); setNotice('') }
-  function payload(custom = false): AaFormPayload {
-    return { session_id: sessionId, total_yuan: total.trim(), contact_ids: rows.map((row) => row.contactId), include_self: includeSelf, note: note.trim(), source_transaction_id: source?.id || null, ...(custom ? { shares_yuan: shares } : {}) }
+  function payload(custom = false, method = allocationMode): AaFormPayload {
+    const base = { session_id: sessionId, total_yuan: total.trim(), contact_ids: rows.map((row) => row.contactId), include_self: includeSelf, note: note.trim(), source_transaction_id: source?.id || null }
+    if (method === 'proportional') return { ...base, shares_ratio: Object.fromEntries(['self', ...rows.map((row) => row.contactId)].map((id) => [id, Number(ratioValues[id] ?? '1')])) }
+    if (custom && method === 'manual') return { ...base, shares_yuan: shares }
+    return base
   }
   async function interpret(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -46,14 +51,16 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       setNote(draft.note); setRows(rowsFromDraft(draft)); setIncludeSelf(draft.include_self === true && draft.payer_is_self === true)
       setRequiresCustom(draft.requires_custom_shares)
       setNeedsReview(draft.needs_review); setReviewAcknowledged(false)
+      setAllocationMode('equal'); setRatioValues({})
     } catch (cause) { setError(cause instanceof Error ? cause.message : '理解分账需求失败') }
     finally { setBusy(false) }
   }
-  async function calculate() {
+  async function calculate(method = allocationMode) {
     if (busy) return
+    setAllocationMode(method)
     setBusy(true); setError(''); setAction(null); setReviewed(false); setNotice('')
     try {
-      const next = await aaRequest<AaPreview>('/api/aa/preview', payload())
+      const next = await aaRequest<AaPreview>('/api/aa/preview', payload(false, method))
       setPreview(next); setShares(Object.fromEntries(next.participants.map((row) => [row.id, row.amount_yuan])))
     } catch (cause) { setPreview(null); setError(cause instanceof Error ? cause.message : '分摊计算失败') }
     finally { setBusy(false) }
@@ -62,7 +69,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
     if (busy || !preview) return
     setBusy(true); setError(''); setReviewed(false); setAction(null)
     try {
-      const reply = await aaRequest<AaReply>('/api/aa/prepare', payload(true))
+      const reply = await aaRequest<AaReply>('/api/aa/prepare', payload(true, allocationMode))
       if (!reply.pending_action || reply.pending_action.type !== 'aa_collection') throw new Error(reply.message || '未能生成收款确认单')
       setAction(reply.pending_action)
       setPreview(reply.pending_action.details)
@@ -78,6 +85,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       if (result.status !== 'completed' || !result.collection_id) throw new Error(result.message || '建单尚未完成，请核对收款列表。')
       setAction(null); setPreview(null); setReviewed(false); setNotice(result.message)
       setTotal(''); setRows([]); setSource(null); setNeedsReview([]); setHasConversation(false); setMessage(''); setIncludeSelf(false); setRequiresCustom(false)
+      setAllocationMode('equal'); setRatioValues({})
       onCreated(result.collection_id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : '建立收款单失败') }
     finally { setBusy(false) }
@@ -86,7 +94,9 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
     invalidate()
     setRows((current) => { const next = [...current]; [next[index], next[index + offset]] = [next[index + offset], next[index]]; return next })
   }
-  const canCalculate = includeSelf && rows.length > 0 && rows.every((row) => row.contactId) && new Set(rows.map((row) => row.contactId)).size === rows.length && (aaCents(total) || 0) > 0 && (!needsReview.length || reviewAcknowledged)
+  const ratioEntries = ['self', ...rows.map((row) => row.contactId)].map((id) => ratioValues[id] ?? '1')
+  const validRatios = allocationMode !== 'proportional' || (ratioEntries.every((value) => /^(0|[1-9]\d{0,6})$/.test(value)) && ratioEntries.some((value) => Number(value) > 0))
+  const canCalculate = includeSelf && rows.length > 0 && rows.every((row) => row.contactId) && new Set(rows.map((row) => row.contactId)).size === rows.length && (aaCents(total) || 0) > 0 && (!needsReview.length || reviewAcknowledged) && validRatios
   return <section className="aa-editor" aria-labelledby="aa-editor-heading" aria-busy={busy}>
     <header className="aa-section-head"><div><h2 id="aa-editor-heading">一起消费，分得清楚</h2><p>描述垫付金额和参与者，核对后生成 AA 收款单。</p></div><span className="aa-step">01 / 分账</span></header>
     {source && <div className="aa-source"><div><strong>已引用原始支出 · {source.counterparty}</strong><span>{source.posted_on} · {aaMoney(source.amount_yuan)} · {source.id}</span></div><button type="button" className="aa-quiet" disabled={busy} onClick={() => { invalidate(); setSource(null); setHasConversation(false); setMessage(''); setNeedsReview([]) }}>移除引用</button></div>}
@@ -106,10 +116,17 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
         <span className="aa-order">{index + 2}</span><label><span>{row.name && !row.contactId ? `请确认：${row.name}` : `参与人 ${index + 1}`}</span><select aria-label={`AA参与人${index + 1}`} value={row.contactId} onChange={(event) => { invalidate(); const selected = contacts.find((contact) => contact.id === event.target.value); setRows((current) => current.map((item) => item.key === row.key ? { ...item, contactId: event.target.value, name: selected?.name || '' } : item)) }}><option value="">{row.name ? `选择 ${row.name} 对应的联系人` : '请选择联系人'}</option>{contacts.map((contact) => <option key={contact.id} value={contact.id} disabled={rows.some((other) => other.key !== row.key && other.contactId === contact.id)}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
         <div className="aa-row-controls"><button type="button" className="aa-icon-button" disabled={index === 0} aria-label={`上移参与人${index + 1}`} onClick={() => moveRow(index, -1)}>↑</button><button type="button" className="aa-icon-button" disabled={index === rows.length - 1} aria-label={`下移参与人${index + 1}`} onClick={() => moveRow(index, 1)}>↓</button><button type="button" className="aa-icon-button" aria-label={`移除参与人${index + 1}`} onClick={() => { invalidate(); setRows((current) => current.filter((item) => item.key !== row.key)) }}>×</button></div>
       </div>)}</div>
-      {needsReview.length > 0 && <div className="aa-review-note"><ul>{needsReview.map((reason, index) => <li key={index}>{reason}</li>)}</ul><label className="review-check"><input type="checkbox" checked={reviewAcknowledged} onChange={(event) => { setPreview(null); setAction(null); setReviewed(false); setReviewAcknowledged(event.target.checked) }} /><span>我已在上方补齐并核对信息，确认这是本人垫付；先计算均分，再按需要调整每人金额。</span></label></div>}
+      <div className="aa-allocation-modes" role="group" aria-label="分摊方式">
+        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'equal'} disabled={busy} onClick={() => { invalidate(); setAllocationMode('equal') }}>均分</button>
+        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'proportional'} disabled={busy} onClick={() => { invalidate(); setAllocationMode('proportional'); setRatioValues((current) => Object.fromEntries(['self', ...rows.map((row) => row.contactId)].map((id) => [id, current[id] ?? '1']))) }}>按比例</button>
+      </div>
+      {allocationMode === 'proportional' && <div className="aa-ratio-list"><p>输入每个人的权重，例如 1 : 2 : 3；系统按权重计算金额并展示到分结果。</p>
+        {[{ id: 'self', name: '我（本人）' }, ...rows.map((row, index) => ({ id: row.contactId, name: contacts.find((contact) => contact.id === row.contactId)?.name || `参与人 ${index + 1}` }))].map((person) => <label key={person.id}>{person.name}<input type="number" min="0" max="1000000" step="1" inputMode="numeric" value={ratioValues[person.id] ?? '1'} disabled={busy} onChange={(event) => { invalidate(); setRatioValues((current) => ({ ...current, [person.id]: event.target.value })) }} /></label>)}
+      </div>}
+      {needsReview.length > 0 && <div className="aa-review-note"><ul>{needsReview.map((reason, index) => <li key={index}>{reason}</li>)}</ul><label className="review-check"><input type="checkbox" checked={reviewAcknowledged} onChange={(event) => { setPreview(null); setAction(null); setReviewed(false); setReviewAcknowledged(event.target.checked) }} /><span>我已在上方补齐并核对信息，确认这是本人垫付；选择分摊方式后再检查每个人的金额。</span></label></div>}
       {!preview && <button type="button" className="page-primary aa-calculate" disabled={!canCalculate} onClick={() => void calculate()}>{busy ? '正在计算…' : '计算分摊金额'}</button>}
     </fieldset>
-    {preview && <AaAllocation preview={preview} shares={shares} action={action} busy={busy} reviewed={reviewed} requiresCustom={requiresCustom} onReviewed={setReviewed} onChange={(id, amount) => { setShares((current) => ({ ...current, [id]: amount })); setAction(null); setReviewed(false); setError('') }} onEqualize={() => void calculate()} onPrepare={() => void prepare()} onConfirm={() => void confirm()} />}
+    {preview && <AaAllocation preview={preview} shares={shares} action={action} busy={busy} reviewed={reviewed} requiresCustom={requiresCustom} onReviewed={setReviewed} onChange={(id, amount) => { setAllocationMode('manual'); setPreview((current) => current ? { ...current, allocation_method: 'manual', share_ratios: null, participants: current.participants.map((row) => ({ ...row, share_ratio: null })) } : current); setShares((current) => ({ ...current, [id]: amount })); setAction(null); setReviewed(false); setError('') }} onEqualize={() => void calculate('equal')} onPrepare={() => void prepare()} onConfirm={() => void confirm()} />}
     {error && <p className="error-banner" role="alert">{error}</p>}
     {notice && <p className="aa-notice" role="status">{notice}</p>}
   </section>

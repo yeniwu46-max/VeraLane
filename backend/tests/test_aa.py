@@ -649,3 +649,37 @@ def test_prepared_aa_reminder_date_is_reauthorized_if_demo_clock_moves(client):
     assert "重新核对站内提醒日期" in response.json()["detail"]
     with db.db_session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM aa_collections").fetchone()[0] == 0
+
+
+def test_proportional_aa_shares_use_largest_remainder_cents_and_authorized_snapshot(client):
+    ratio = {"self": 1, LIN: 2, CHEN: 3}
+    response = client.post("/api/aa/preview", json=payload(total_yuan="100.01", shares_ratio=ratio))
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview["allocation_method"] == "proportional"
+    assert preview["share_ratios"] == ratio
+    assert [person["amount_yuan"] for person in preview["participants"]] == ["16.67", "33.34", "50.00"]
+    assert sum(int(Decimal(person["amount_yuan"]) * 100) for person in preview["participants"]) == 10001
+
+    action = client.post("/api/aa/prepare", json=payload(total_yuan="100.01", shares_ratio=ratio)).json()["pending_action"]
+    assert action["details"]["share_ratios"] == ratio
+    assert action["details"]["allocation_method"] == "proportional"
+    confirmed = confirm(client, action)
+    assert confirmed.status_code == 200, confirmed.text
+    collection = get_collection(client, confirmed.json()["collection_id"])
+    assert [person["amount_yuan"] for person in collection["participants"]] == ["16.67", "33.34", "50.00"]
+
+
+@pytest.mark.parametrize("changes", [
+    {"shares_ratio": {"self": 1, LIN: 2, "unknown": 3}},
+    {"shares_ratio": {"self": 0, LIN: 0, CHEN: 0}},
+    {"shares_ratio": {"self": -1, LIN: 2, CHEN: 3}},
+    {"shares_ratio": {"self": 1.5, LIN: 2, CHEN: 3}},
+    {"shares_ratio": {"self": 1, LIN: 2, CHEN: 3}, "shares_yuan": {"self": "20", LIN: "30", CHEN: "50"}},
+])
+def test_invalid_aa_ratio_plans_are_rejected_without_persisting_actions(client, changes):
+    response = client.post("/api/aa/prepare", json=payload(**changes))
+    assert response.status_code in (400, 422), response.text
+    assert client.get("/api/aa/collections", params={"session_id": SESSION}).json()["collections"] == []
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='aa_collection'").fetchone()[0] == 0
