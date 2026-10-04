@@ -211,7 +211,10 @@ def offline_intent(message: str, contact_names: list[str], subscription_names: l
             note=note,
             schedule_requested=wants_schedule(text),
         )
-    if any(word in text for word in ("账单", "消费", "花了多少", "花得多", "花费", "支出", "报告", "异常交易", "重复扣费")):
+    if any(word in text for word in (
+        "账单", "消费", "花了多少", "花得多", "花费", "多花", "少花", "支出",
+        "报告", "异常交易", "重复扣费", "比较", "对比", "环比", "同比", "变化", "差额",
+    )):
         period = next((value for value in ("去年", "今年", "年度", "全年", "上个月") if value in text), "本月")
         return Intent(action="bill_summary", period=period)
     if any(word in text for word in ("余额", "还有多少钱", "账户有多少")):

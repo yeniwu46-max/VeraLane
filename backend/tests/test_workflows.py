@@ -281,6 +281,39 @@ def test_bill_summary_is_backed_by_transaction_ids(client):
     assert next(row for row in report["transactions"] if row["id"] == "tx-1")["note"] == "早餐"
 
 
+def test_natural_spending_comparison_routes_to_explained_bill_evidence(client):
+    original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    question = "本月餐饮比上月多花多少"
+    result = send(client, question)
+    assert "pending_action" not in result
+    assert result["insight_query"] == question
+    report = result["insight_report"]
+    assert report["period"] == "2026-09"
+    assert report["filters"]["category"] == "餐饮"
+    assert report["comparison"]["current_total_yuan"] == "103.90"
+    assert report["comparison"]["previous_total_yuan"] == "137.00"
+    assert report["comparison"]["delta_yuan"] == "-33.10"
+    assert {row["id"] for row in report["transactions"]} == {"tx-1", "tx-6"}
+    assert "减少 ¥33.10" in result["message"]
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
+    with db.db_session() as conn:
+        audit = conn.execute(
+            "SELECT details_json FROM audit WHERE session_id=? AND event='insights_queried'",
+            ("test-session",),
+        ).fetchone()
+        assert '"category": "餐饮"' in audit["details_json"]
+
+
+def test_read_only_bill_comparison_preserves_pending_transfer_context(client):
+    partial = send(client, "转给林悦", session_id="mixed-read-session")
+    assert "pending_action" not in partial
+    insight = send(client, "本月餐饮比上月多花多少", session_id="mixed-read-session")
+    assert "insight_report" in insight
+    completed = send(client, "300元", session_id="mixed-read-session")
+    assert completed["pending_action"]["details"]["recipient"] == "林悦"
+    assert completed["pending_action"]["details"]["amount_yuan"] == "300.00"
+
+
 def test_bill_exports_include_summary_and_transaction_details(client):
     csv_response = client.get("/api/bills/export", params={"period": "本月", "format": "csv"})
     assert csv_response.status_code == 200

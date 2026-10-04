@@ -296,14 +296,25 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
             set_context(conn, session_id, {})
             return reply(f"日常账户余额为 ¥{money(account['balance_cents'])}，可用余额 ¥{money(available_cents(conn))}，预留 ¥{money(account['balance_cents'] - available_cents(conn))}。数据来自模拟账户。", session_id, parsed.mode)
         if intent.action == "bill_summary":
-            set_context(conn, session_id, {})
-            if re.search(r"餐饮|交通|日用|居住|超过|低于|小于|为什么|变化|增加|减少|异常|重复|上月|商户", request_text):
-                from .insights import build_report, parse_question
+            if re.search(
+                r"餐饮|交通|日用|居住|超过|低于|小于|为什么|变化|增加|减少|异常|重复|上月|商户|"
+                r"比较|对比|环比|同比|多花|少花|差额|分类|"
+                r"(?:今年|去年).{0,8}(?:比|比较)|(?:比|比较).{0,8}(?:今年|去年)",
+                request_text,
+            ):
+                from .insights import RULE_VERSION, build_report, parse_question
                 try:
-                    insight = build_report(conn, parse_question(conn, request_text))
-                    return reply(insight['summary'], session_id, 'offline', insight_query=request_text)
+                    filters = parse_question(conn, request_text)
+                    insight = build_report(conn, filters)
+                    audit(conn, session_id, "insights_queried", {
+                        "period": insight["period"], "filters": insight["filters"],
+                        "rule_version": RULE_VERSION,
+                    })
+                    return reply(insight['summary'], session_id, 'offline',
+                                 insight_query=request_text, insight_report=insight)
                 except ValueError as exc:
                     return reply(str(exc), session_id, 'offline', insight_query=request_text)
+            set_context(conn, session_id, {})
             return bill_summary(conn, session_id, parsed.mode, intent.period or message)
         if intent.action == "subscription_list":
             set_context(conn, session_id, {})
