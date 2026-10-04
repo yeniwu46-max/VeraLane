@@ -136,6 +136,11 @@ class AaSettlementRequest(AaOwnerRequest):
     note: str = Field(default="多人垫付结算", max_length=100)
 
 
+class AaInstallmentRequest(AaOwnerRequest):
+    amount_yuan: str = Field(min_length=1, max_length=30)
+    idempotency_key: str = Field(min_length=1, max_length=100)
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -279,6 +284,11 @@ def close_aa(collection_id: str, request: AaOwnerRequest) -> dict:
 @app.post("/api/aa/requests/{request_id}/simulate-payment")
 def pay_aa(request_id: str, request: AaOwnerRequest) -> dict:
     return aa.simulate_payment(request_id, request.session_id)
+
+
+@app.post("/api/aa/requests/{request_id}/installments")
+def pay_aa_installment(request_id: str, request: AaInstallmentRequest) -> dict:
+    return aa.simulate_installment(request_id, request.session_id, request.amount_yuan, request.idempotency_key)
 
 
 # Registered last: API routes take precedence. Only the built public UI is served.

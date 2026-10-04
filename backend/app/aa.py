@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import secrets
@@ -233,8 +234,17 @@ def _owned(conn: sqlite3.Connection, collection_id: str, session_id: str) -> sql
 
 
 def _received(conn: sqlite3.Connection, collection_id: str) -> int:
-    return conn.execute("SELECT COALESCE(SUM(e.amount_cents), 0) FROM aa_payment_events e "
-                        "JOIN aa_requests r ON r.id = e.request_id WHERE r.collection_id = ?", (collection_id,)).fetchone()[0]
+    legacy = conn.execute("SELECT COALESCE(SUM(e.amount_cents), 0) FROM aa_payment_events e "
+                          "JOIN aa_requests r ON r.id = e.request_id WHERE r.collection_id = ?", (collection_id,)).fetchone()[0]
+    installments = conn.execute("SELECT COALESCE(SUM(p.amount_cents), 0) FROM aa_partial_payments p "
+                                "JOIN aa_requests r ON r.id = p.request_id WHERE r.collection_id = ?", (collection_id,)).fetchone()[0]
+    return legacy + installments
+
+
+def _request_received(conn: sqlite3.Connection, request_id: str) -> int:
+    legacy = conn.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM aa_payment_events WHERE request_id = ?", (request_id,)).fetchone()[0]
+    installments = conn.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM aa_partial_payments WHERE request_id = ?", (request_id,)).fetchone()[0]
+    return legacy + installments
 
 
 def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
@@ -245,9 +255,24 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     participants = []
     for person in payload["participants"]:
         request = requests.get(person["id"])
+        request_received = _request_received(conn, request["id"]) if request else 0
+        request_payments = []
+        if request:
+            payment_rows = conn.execute(
+                "SELECT amount_cents, transaction_id, created_at FROM aa_payment_events WHERE request_id = ? "
+                "UNION ALL SELECT amount_cents, transaction_id, created_at FROM aa_partial_payments WHERE request_id = ? "
+                "ORDER BY created_at, transaction_id", (request["id"], request["id"]),
+            ).fetchall()
+            request_payments = [{"amount_yuan": money(item["amount_cents"]), "transaction_id": item["transaction_id"],
+                                 "paid_at": item["created_at"]} for item in payment_rows]
+        status = "self" if person["id"] == "self" else "not_required"
+        if request:
+            status = request["status"] if request["status"] in ("paid", "closed") else "partial" if request_received else "pending"
         participants.append({"id": person["id"], "name": person["name"], "phone_masked": person["phone_masked"],
                              "amount_yuan": person["amount_yuan"], "request_id": request["id"] if request else None,
-                             "status": request["status"] if request else "self" if person["id"] == "self" else "not_required",
+                             "status": status, "received_yuan": money(request_received),
+                             "outstanding_yuan": money((request["amount_cents"] - request_received) if request else 0),
+                             "payments": request_payments,
                              "paid_at": request["paid_at"] if request else None,
                              "transaction_id": request["transaction_id"] if request else None})
     return {"id": row["id"], "status": row["status"], "created_at": row["created_at"], "closed_at": row["closed_at"],
@@ -304,7 +329,9 @@ def simulate_payment(request_id: str, session_id: str) -> dict:
                                (request["contact_id"], USER_ID)).fetchone()
         if contact is None or contact_fingerprint(contact) != person["contact_fingerprint"]:
             raise HTTPException(409, "付款人信息已变化，未入账")
-        amount = request["amount_cents"]
+        amount = request["amount_cents"] - _request_received(conn, request_id)
+        if amount <= 0:
+            raise HTTPException(409, "收款请求已收齐，请查看逐笔回执")
         received = _received(conn, group["id"])
         target = share_cents(payload["receivable_yuan"])
         if received + amount > target:
@@ -323,6 +350,74 @@ def simulate_payment(request_id: str, session_id: str) -> dict:
                      ("completed" if received + amount == target else "partial", group["id"]))
         audit(conn, session_id, "aa_payment_received", {"collection_id": group["id"], "request_id": request_id,
                                                        "transaction_id": tx_id, "amount_yuan": money(amount), "simulated": True})
+        result = public_collection(conn, _owned(conn, group["id"], session_id))
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def simulate_installment(request_id: str, session_id: str, amount_yuan: str, idempotency_key: str) -> dict:
+    if os.environ.get("VERALANE_DEMO_CONTROLS", "1") != "1":
+        raise HTTPException(403, "模拟付款控制已关闭")
+    amount = share_cents(amount_yuan)
+    if amount <= 0:
+        raise HTTPException(422, "分次回款金额须大于 0")
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        request = conn.execute("SELECT * FROM aa_requests WHERE id = ?", (request_id,)).fetchone()
+        if request is None:
+            raise HTTPException(404, "未找到收款请求")
+        group = _owned(conn, request["collection_id"], session_id)
+        payload = _validate_authorization(conn, group)
+        person = next((p for p in payload["participants"] if p["id"] == request["contact_id"] and p["id"] != "self"), None)
+        if person is None or person["amount_cents"] != request["amount_cents"]:
+            raise HTTPException(409, "收款请求与已确认份额不一致，未入账")
+        contact = conn.execute("SELECT * FROM contacts WHERE id = ? AND user_id = ? AND verified = 1",
+                               (request["contact_id"], USER_ID)).fetchone()
+        if contact is None or contact_fingerprint(contact) != person["contact_fingerprint"]:
+            raise HTTPException(409, "付款人信息已变化，未入账")
+
+        existing = conn.execute("SELECT * FROM aa_partial_payments WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+        if existing:
+            if existing["request_id"] != request_id or existing["amount_cents"] != amount:
+                raise HTTPException(409, "分次回款编号已用于其他金额或收款人")
+            result = public_collection(conn, group)
+            conn.commit()
+            return result
+        if request["status"] != "pending" or group["status"] not in ("pending", "partial"):
+            raise HTTPException(409, "收款请求已关闭或收齐，未入账")
+        outstanding = request["amount_cents"] - _request_received(conn, request_id)
+        if amount > outstanding:
+            raise HTTPException(409, f"本次金额超过待收余额 ¥{money(outstanding)}，未入账")
+        received = _received(conn, group["id"])
+        target = share_cents(payload["receivable_yuan"])
+        if received + amount > target:
+            raise HTTPException(409, "到账将超过收款单应收金额，未入账")
+
+        timestamp = business_now(conn).isoformat(timespec="seconds")
+        key_hash = hashlib.sha256(f"{request_id}:{idempotency_key}".encode()).hexdigest()[:32]
+        tx_id = f"aa-part-{key_hash}"
+        conn.execute("UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ?", (amount, ACCOUNT_ID))
+        conn.execute("INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note, action_id) "
+                     "VALUES (?, ?, ?, 'in', ?, ?, 'AA分次回款', ?, ?)",
+                     (tx_id, ACCOUNT_ID, business_date(conn), amount, person["name"], payload["note"], f"aa-part-action-{key_hash}"))
+        conn.execute("INSERT INTO aa_partial_payments (idempotency_key, request_id, transaction_id, amount_cents, created_at) "
+                     "VALUES (?, ?, ?, ?, ?)", (idempotency_key, request_id, tx_id, amount, timestamp))
+        request_total = _request_received(conn, request_id)
+        is_paid = request_total == request["amount_cents"]
+        if request_total > request["amount_cents"]:
+            raise HTTPException(409, "累计回款超过该联系人应付金额，已回滚")
+        conn.execute("UPDATE aa_requests SET status = ?, paid_at = ?, transaction_id = ? WHERE id = ?",
+                     ("paid" if is_paid else "pending", timestamp if is_paid else None, tx_id if is_paid else None, request_id))
+        conn.execute("UPDATE aa_collections SET status = ? WHERE id = ?",
+                     ("completed" if received + amount == target else "partial", group["id"]))
+        audit(conn, session_id, "aa_installment_received", {"collection_id": group["id"], "request_id": request_id,
+                                                             "transaction_id": tx_id, "amount_yuan": money(amount), "simulated": True})
         result = public_collection(conn, _owned(conn, group["id"], session_id))
         conn.commit()
         return result

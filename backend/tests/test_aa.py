@@ -323,6 +323,48 @@ def test_concurrent_payment_and_replay_after_restart_credit_exactly_once(client)
     assert ledger() == (after_balance, after_rows)
 
 
+def test_aa_request_supports_idempotent_installments_then_pays_only_the_remainder(client):
+    _, collection = authorize(client, total_yuan="100.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    balance_before = ledger()[0]
+    url = f"/api/aa/requests/{request['request_id']}/installments"
+    body = {"session_id": SESSION, "amount_yuan": "10.00", "idempotency_key": "installment-test-1"}
+
+    first = client.post(url, json=body)
+    retry = client.post(url, json=body)
+    assert first.status_code == retry.status_code == 200
+    result = first.json()
+    person = next(row for row in result["participants"] if row["request_id"] == request["request_id"])
+    assert person["status"] == "partial"
+    assert person["received_yuan"] == "10.00"
+    assert person["outstanding_yuan"] == "40.00"
+    assert retry.json()["participants"] == result["participants"]
+    assert ledger()[0] == balance_before + 1000
+
+    paid = payment(client, request)
+    assert paid.status_code == 200, paid.text
+    settled = next(row for row in paid.json()["participants"] if row["request_id"] == request["request_id"])
+    assert settled["status"] == "paid"
+    assert settled["received_yuan"] == settled["amount_yuan"] == "50.00"
+    assert settled["outstanding_yuan"] == "0.00"
+    assert len(settled["payments"]) == 2
+    assert ledger()[0] == balance_before + 5000
+
+
+def test_aa_installment_rejects_overpayment_and_idempotency_key_reuse(client):
+    _, collection = authorize(client, total_yuan="100.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    url = f"/api/aa/requests/{request['request_id']}/installments"
+    body = {"session_id": SESSION, "amount_yuan": "49.99", "idempotency_key": "same-key"}
+    first = client.post(url, json=body)
+    assert first.status_code == 200
+    balance_after = ledger()[0]
+    assert client.post(url, json=body).json()["participants"] == first.json()["participants"]
+    assert client.post(url, json={**body, "amount_yuan": "49.98"}).status_code == 409
+    assert client.post(url, json={**body, "amount_yuan": "0.02", "idempotency_key": "overpay"}).status_code == 409
+    assert ledger()[0] == balance_after
+
+
 def test_full_receipt_matches_sum_of_unique_income_transactions(client):
     _, collection = authorize(client)
     before_balance, before_rows = ledger()

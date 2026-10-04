@@ -38,7 +38,10 @@ export type AaCollection = {
   closed_at: string | null
   participants: {
     id: string; request_id: string | null; name: string; phone_masked: string; amount_yuan: string
-    status: 'self' | 'not_required' | 'pending' | 'paid' | 'closed'; paid_at: string | null; transaction_id: string | null
+    status: 'self' | 'not_required' | 'pending' | 'partial' | 'paid' | 'closed'
+    received_yuan: string; outstanding_yuan: string
+    payments: { amount_yuan: string; transaction_id: string; paid_at: string }[]
+    paid_at: string | null; transaction_id: string | null
   }[]
 }
 export type AaCollections = { collections: AaCollection[]; demo_controls_enabled: boolean }

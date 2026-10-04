@@ -160,6 +160,13 @@ def init_db() -> None:
                 amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS aa_partial_payments (
+                idempotency_key TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL REFERENCES aa_requests(id),
+                transaction_id TEXT NOT NULL UNIQUE REFERENCES transactions(id),
+                amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                created_at TEXT NOT NULL
+            );
             """
         )
         # executescript commits any open transaction; seed rows atomically.
