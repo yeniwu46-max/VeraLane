@@ -369,6 +369,49 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
         if intent.action == "aa_split" or (context.get("pending_aa") and intent.action == "unknown"):
             from .aa import interpret_message
             return interpret_message(conn, session_id, message, parsed.mode, intent)
+        if intent.action == "budget_query":
+            from .bill_preferences import budget_status_in_connection
+            status = budget_status_in_connection(conn, session_id, intent.budget_category)
+            audit(conn, session_id, "budget_status_queried", {
+                "month": status["month"], "category": intent.budget_category,
+                "transaction_ids": [tx_id for budget in status["budgets"] for tx_id in budget["transaction_ids"]],
+            })
+            if not status["budgets"]:
+                category_label = f"“{intent.budget_category}”" if intent.budget_category else ""
+                message_text = f"{status['month']} {category_label}尚未设置本月预算。你可以说“本月餐饮预算控制在 1500 元”来创建待确认计划。"
+            else:
+                lines = []
+                for budget in status["budgets"]:
+                    label = budget["category"] or "全部支出"
+                    if budget["over_yuan"] != "0.00":
+                        detail = f"已超出 ¥{budget['over_yuan']}"
+                    else:
+                        detail = f"还可用 ¥{budget['remaining_yuan']}"
+                    lines.append(f"{label}：预算 ¥{budget['amount_yuan']}，已支出 ¥{budget['spent_yuan']}，{detail}。")
+                message_text = f"{status['month']} 预算进度：\n" + "\n".join(lines) + "\n支出按当前账单分类统计；此查询不会限制或划转资金。"
+            return reply(message_text, session_id, "offline", budget_status=status)
+        if intent.action == "cash_forecast_query":
+            from .bill_preferences import _forecast
+            forecast = _forecast(conn)
+            lines = []
+            for item in forecast["authorized_transfers"]:
+                lines.append(f"{item['at'][:10]} 已授权转账 · {item['label']} ¥{item['amount_yuan']}")
+            for item in forecast["known_debits"]:
+                lines.append(f"{item['at']} 已知代扣估算 · {item['label']} ¥{item['amount_yuan']}")
+            if not lines:
+                lines.append("未来 30 天没有找到已授权转账或已登记的自动扣款。")
+            message_text = (
+                f"未来30天（{forecast['from'][:10]} 至 {forecast['to'][:10]}）已知安排：\n"
+                + "\n".join(lines)
+                + f"\n当前可用 ¥{forecast['available_yuan']}；扣除上述已授权转账后约 ¥{forecast['after_authorized_yuan']}；再计入已登记代扣估算后约 ¥{forecast['after_known_debits_yuan']}。"
+                + "\n代扣日期和金额是依据已保存协议的估算，不是新授权；未知收支、执行失败及未到账款项会改变结果。"
+            )
+            audit(conn, session_id, "cash_forecast_queried", {
+                "from": forecast["from"], "to": forecast["to"],
+                "authorized_transfer_ids": [item["id"] for item in forecast["authorized_transfers"]],
+                "known_debit_ids": [item["id"] for item in forecast["known_debits"]],
+            })
+            return reply(message_text, session_id, "offline", cash_forecast=forecast)
         if intent.action == "balance_query":
             account = conn.execute("SELECT balance_cents FROM accounts WHERE id = ?", (ACCOUNT_ID,)).fetchone()
             set_context(conn, session_id, {})

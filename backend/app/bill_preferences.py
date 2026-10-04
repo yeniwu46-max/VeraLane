@@ -280,6 +280,30 @@ def _all_expenses(conn: sqlite3.Connection) -> list[dict]:
     return [{**row, "amount_yuan": money(row["amount_cents"])} for row in apply_effective_categories(conn, rows)]
 
 
+def budget_status_in_connection(conn: sqlite3.Connection, session_id: str, category: str | None = None) -> dict[str, Any]:
+    """Return current-month budget figures from the same connection as chat reads."""
+    month = business_date(conn)[:7]
+    expenses = [row for row in _all_expenses(conn) if row["posted_on"].startswith(month)]
+    budgets = []
+    for row in conn.execute(
+        "SELECT * FROM bill_budgets WHERE account_id=? AND session_id=? AND month=? ORDER BY category",
+        (ACCOUNT_ID, session_id, month),
+    ):
+        if category is not None and row["category"] != category:
+            continue
+        spend_rows = [item for item in expenses if row["category"] == "*" or item["category"] == row["category"]]
+        spent = sum(item["amount_cents"] for item in spend_rows)
+        budgets.append({
+            "category": None if row["category"] == "*" else row["category"],
+            "amount_yuan": money(row["amount_cents"]),
+            "spent_yuan": money(spent),
+            "remaining_yuan": money(row["amount_cents"] - spent),
+            "over_yuan": money(max(0, spent - row["amount_cents"])),
+            "transaction_ids": [item["id"] for item in spend_rows],
+        })
+    return {"month": month, "budgets": budgets}
+
+
 def _forecast(conn: sqlite3.Connection) -> dict:
     now = business_now(conn)
     end = now + timedelta(days=30)

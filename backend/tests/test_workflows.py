@@ -385,6 +385,61 @@ def test_natural_language_budget_does_not_erase_incomplete_transfer(client):
     assert completed["pending_action"]["details"]["recipient"] == "林悦"
 
 
+def test_chat_reports_confirmed_budget_remaining_with_ledger_evidence(client):
+    session_id = "budget-query-session"
+    prepared = send(client, "本月餐饮预算控制在1500元", session_id=session_id)
+    action_id = prepared["pending_action"]["id"]
+    assert client.post(f"/api/actions/{action_id}/confirm", json={"session_id": session_id}).status_code == 200
+
+    result = send(client, "本月餐饮预算还剩多少？", session_id=session_id)
+
+    assert result["mode"] == "offline"
+    assert "¥1396.10" in result["message"]
+    assert result["budget_status"]["month"] == "2026-09"
+    assert result["budget_status"]["budgets"] == [{
+        "category": "餐饮", "amount_yuan": "1500.00", "spent_yuan": "103.90",
+        "remaining_yuan": "1396.10", "over_yuan": "0.00", "transaction_ids": ["tx-1", "tx-6"],
+    }]
+
+
+def test_chat_budget_query_without_saved_budget_is_read_only_and_keeps_transfer_draft(client):
+    session_id = "empty-budget-query-session"
+    send(client, "转给林悦", session_id=session_id)
+
+    result = send(client, "本月预算还剩多少？", session_id=session_id)
+
+    assert "尚未设置本月预算" in result["message"]
+    assert result["budget_status"]["budgets"] == []
+    completed = send(client, "300元", session_id=session_id)
+    assert completed["pending_action"]["type"] == "transfer"
+    assert completed["pending_action"]["details"]["recipient"] == "林悦"
+
+
+def test_category_budget_query_does_not_substitute_the_total_budget(client):
+    session_id = "category-budget-query-session"
+    prepared = send(client, "本月总预算控制在3000元", session_id=session_id)
+    action_id = prepared["pending_action"]["id"]
+    assert client.post(f"/api/actions/{action_id}/confirm", json={"session_id": session_id}).status_code == 200
+
+    result = send(client, "本月餐饮预算还剩多少？", session_id=session_id)
+
+    assert "餐饮”尚未设置本月预算" in result["message"]
+    assert result["budget_status"]["budgets"] == []
+
+
+def test_chat_cash_forecast_lists_known_debits_and_authorized_transfers(client):
+    result = send(client, "未来30天预计有哪些自动扣款和已授权转账？")
+
+    assert result["mode"] == "offline"
+    assert "未来30天" in result["message"]
+    assert "云影会员" in result["message"]
+    assert "已知代扣估算" in result["message"]
+    assert result["cash_forecast"]["from"].startswith("2026-09-30")
+    assert result["cash_forecast"]["to"].startswith("2026-10-30")
+    assert result["cash_forecast"]["known_debits"]
+    assert result["cash_forecast"]["limitations"]
+
+
 def test_chat_category_correction_requires_confirmation_and_preserves_original_transaction(client):
     original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
     prepared = send(client, "把交易 tx-8 归类为差旅，因为是出差打车")
