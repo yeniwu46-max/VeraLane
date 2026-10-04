@@ -683,3 +683,103 @@ def test_invalid_aa_ratio_plans_are_rejected_without_persisting_actions(client, 
     assert client.get("/api/aa/collections", params={"session_id": SESSION}).json()["collections"] == []
     with db.db_session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='aa_collection'").fetchone()[0] == 0
+
+
+def test_aa_receipt_refund_is_authorized_bounded_and_kept_as_a_separate_ledger_entry(client):
+    _, collection = authorize(client, total_yuan="100.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    paid = payment(client, request).json()
+    person = next(row for row in paid["participants"] if row["request_id"] == request["request_id"])
+    original_receipt = person["payments"][0]
+    balance_before_refund = ledger()[0]
+
+    prepared = client.post(f"/api/aa/requests/{request['request_id']}/refund/prepare", json={
+        "session_id": SESSION, "source_transaction_id": original_receipt["transaction_id"], "amount_yuan": "20.00",
+    })
+    assert prepared.status_code == 200, prepared.text
+    action = prepared.json()["pending_action"]
+    assert action["type"] == "aa_refund" and action["tier"] == "yellow"
+    assert action["details"]["recipient_name"] == "林悦"
+    assert action["details"]["remaining_refundable_yuan"] == "50.00"
+
+    result = confirm(client, action)
+    assert result.status_code == 200, result.text
+    receipt = result.json()
+    assert receipt["status"] == "completed" and receipt["amount_yuan"] == "20.00"
+    assert confirm(client, action).json() == receipt
+    assert ledger()[0] == balance_before_refund - 2000
+
+    updated = get_collection(client, collection["id"])
+    assert updated["received_yuan"] == "50.00"  # gross receipt history remains intact
+    assert updated["refunded_yuan"] == "20.00"
+    assert updated["net_received_yuan"] == "30.00"
+    assert updated["net_advance_yuan"] == "70.00"
+    person_after = next(row for row in updated["participants"] if row["request_id"] == request["request_id"])
+    assert person_after["status"] == "paid"
+    assert person_after["payments"][0]["refunded_yuan"] == "20.00"
+    assert person_after["payments"][0]["net_received_yuan"] == "30.00"
+    assert person_after["payments"][0]["refunds"][0]["transaction_id"] == receipt["transaction_id"]
+
+    over = client.post(f"/api/aa/requests/{request['request_id']}/refund/prepare", json={
+        "session_id": SESSION, "source_transaction_id": original_receipt["transaction_id"], "amount_yuan": "30.01",
+    })
+    assert over.status_code == 409, over.text
+
+
+def test_aa_refund_rejects_unrelated_receipts_and_cross_session_requests(client):
+    _, collection = authorize(client, total_yuan="100.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    paid = payment(client, request).json()
+    participant = next(row for row in paid["participants"] if row["request_id"] == request["request_id"])
+    receipt_id = participant["payments"][0]["transaction_id"]
+    url = f"/api/aa/requests/{request['request_id']}/refund/prepare"
+    body = {"session_id": SESSION, "source_transaction_id": receipt_id, "amount_yuan": "1.00"}
+    assert client.post(url, json={**body, "source_transaction_id": "tx-1"}).status_code == 409
+    assert client.post(url, json={**body, "session_id": "intruder"}).status_code == 404
+    assert client.get("/api/aa/collections", params={"session_id": "intruder"}).json()["collections"] == []
+
+
+def test_aa_refund_rechecks_competing_actions_and_available_reserved_funds(client):
+    _, collection = authorize(client, total_yuan="100.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    paid = payment(client, request).json()
+    participant = next(row for row in paid["participants"] if row["request_id"] == request["request_id"])
+    source_id = participant["payments"][0]["transaction_id"]
+    url = f"/api/aa/requests/{request['request_id']}/refund/prepare"
+    body = {"session_id": SESSION, "source_transaction_id": source_id, "amount_yuan": "30.00"}
+    first = client.post(url, json=body).json()["pending_action"]
+    competing = client.post(url, json=body).json()["pending_action"]
+    balance_before = ledger()[0]
+    assert confirm(client, first).status_code == 200
+    rejected = confirm(client, competing)
+    assert rejected.status_code == 409
+    assert ledger()[0] == balance_before - 3000
+
+    with db.db_session() as conn:
+        balance = conn.execute("SELECT balance_cents FROM accounts WHERE id=?", (db.ACCOUNT_ID,)).fetchone()[0]
+        reserved = balance - 50
+        conn.execute("INSERT INTO fund_reservations(id,session_id,account_id,purpose,amount_cents,remaining_cents,status,created_at,updated_at) "
+                     "VALUES('refund-reserve',?,?,?, ?,?,'active','now','now')",
+                     (SESSION, db.ACCOUNT_ID, "测试预留", reserved, reserved))
+    insufficient = client.post(url, json={**body, "amount_yuan": "1.00"})
+    assert insufficient.status_code == 409
+    assert "可用余额不足" in insufficient.json()["detail"]
+
+
+def test_large_aa_refund_requires_separate_demo_verification(client):
+    _, collection = authorize(client, total_yuan="3000.00", contact_ids=[LIN])
+    request = requests(collection)[0]
+    paid = payment(client, request).json()
+    participant = next(row for row in paid["participants"] if row["request_id"] == request["request_id"])
+    source_id = participant["payments"][0]["transaction_id"]
+    prepared = client.post(f"/api/aa/requests/{request['request_id']}/refund/prepare", json={
+        "session_id": SESSION, "source_transaction_id": source_id, "amount_yuan": "1500.00",
+    }).json()["pending_action"]
+    assert prepared["tier"] == "red"
+    assert confirm(client, prepared).status_code == 403
+    challenge = client.post(f"/api/actions/{prepared['id']}/challenge", json={"session_id": SESSION}).json()
+    verified = client.post(f"/api/actions/{prepared['id']}/verify", json={
+        "session_id": SESSION, "challenge_id": challenge["challenge_id"], "code": challenge["demo_code"],
+    })
+    assert verified.status_code == 200, verified.text
+    assert confirm(client, prepared).status_code == 200

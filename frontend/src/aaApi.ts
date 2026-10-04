@@ -37,6 +37,8 @@ export type AaCollection = {
   received_yuan: string
   outstanding_yuan: string
   net_advance_yuan: string
+  refunded_yuan: string
+  net_received_yuan: string
   source_transaction: AaSource | null
   source_type: 'ledger' | 'user'
   created_at: string
@@ -45,7 +47,8 @@ export type AaCollection = {
     id: string; request_id: string | null; name: string; phone_masked: string; amount_yuan: string; share_ratio?: number | null
     status: 'self' | 'not_required' | 'pending' | 'partial' | 'paid' | 'closed'
     received_yuan: string; outstanding_yuan: string
-    payments: { amount_yuan: string; transaction_id: string; paid_at: string }[]
+    refunded_yuan: string; net_received_yuan: string
+    payments: { amount_yuan: string; transaction_id: string; paid_at: string; refunded_yuan: string; net_received_yuan: string; refundable_yuan: string; refunds: { amount_yuan: string; transaction_id: string; refunded_at: string }[] }[]
     paid_at: string | null; transaction_id: string | null
   }[]
 }

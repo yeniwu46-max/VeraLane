@@ -540,6 +540,9 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
         elif row["type"] == "aa_collection":
             from .aa import create_collection
             result = create_collection(conn, action_id, session_id, payload)
+        elif row["type"] == "aa_refund":
+            from .aa import execute_refund
+            result = execute_refund(conn, action_id, session_id, payload)
         elif row["type"] == "scheduled_transfer":
             from .schedules import create_schedule
             result = create_schedule(conn, action_id, session_id, payload)

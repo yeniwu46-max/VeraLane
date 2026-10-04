@@ -99,6 +99,14 @@
 .aa-receipt-row > div > strong { text-align: right; font-variant-numeric: tabular-nums; }
 .aa-receipt-row small { display: block; color: var(--vl-muted); font-size: 11px; margin-top: 4px; }
 .aa-receipt-row p { margin: 8px 0 0; color: #abc1dc; font-size: 11px; overflow-wrap: anywhere; }
+.aa-receipt-summary > div > small { display: block; margin-top: 6px; color: var(--vl-muted); font-size: 11px; }
+.aa-payment-receipt { margin-top: 8px; padding: 9px 10px; border: 1px solid var(--vl-line); border-radius: 6px; background: #102137; }
+.aa-payment-receipt > p { margin-top: 0; }
+.aa-payment-receipt > small { overflow-wrap: anywhere; }
+.aa-refund-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 10px; }
+.aa-refund-controls label { display: grid; gap: 5px; color: var(--vl-muted); font-size: 11px; }
+.aa-refund-controls input { width: 150px; min-height: 36px; padding: 6px 9px; border: 1px solid #4b6689; border-radius: 5px; background: #0b1728; color: #eff5ff; font: inherit; font-size: 12px; }
+.aa-dialog .action-card { margin-top: 20px; }
 .aa-installment { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 12px; }
 .aa-installment label { display: grid; gap: 5px; color: var(--vl-muted); font-size: 11px; }
 .aa-installment input { width: 150px; min-height: 36px; padding: 6px 9px; border: 1px solid #4b6689; border-radius: 5px; background: #102137; color: #eff5ff; font: inherit; font-size: 12px; }

@@ -168,6 +168,16 @@ def init_db() -> None:
                 amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS aa_refunds (
+                id TEXT PRIMARY KEY REFERENCES actions(id),
+                collection_id TEXT NOT NULL REFERENCES aa_collections(id),
+                request_id TEXT NOT NULL REFERENCES aa_requests(id),
+                source_transaction_id TEXT NOT NULL REFERENCES transactions(id),
+                transaction_id TEXT NOT NULL UNIQUE REFERENCES transactions(id),
+                amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS aa_refunds_source ON aa_refunds(source_transaction_id);
             """
         )
         aa_columns = {row["name"] for row in conn.execute("PRAGMA table_info(aa_collections)")}

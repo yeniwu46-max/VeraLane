@@ -142,6 +142,11 @@ class AaInstallmentRequest(AaOwnerRequest):
     idempotency_key: str = Field(min_length=1, max_length=100)
 
 
+class AaRefundRequest(AaOwnerRequest):
+    source_transaction_id: str = Field(min_length=1, max_length=200)
+    amount_yuan: str = Field(min_length=1, max_length=30)
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -290,6 +295,11 @@ def pay_aa(request_id: str, request: AaOwnerRequest) -> dict:
 @app.post("/api/aa/requests/{request_id}/installments")
 def pay_aa_installment(request_id: str, request: AaInstallmentRequest) -> dict:
     return aa.simulate_installment(request_id, request.session_id, request.amount_yuan, request.idempotency_key)
+
+
+@app.post("/api/aa/requests/{request_id}/refund/prepare")
+def prepare_aa_refund(request_id: str, request: AaRefundRequest) -> dict:
+    return aa.prepare_refund(request_id, request.session_id, request.source_transaction_id, request.amount_yuan)
 
 
 # Registered last: API routes take precedence. Only the built public UI is served.

@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from .clock import business_date, business_now
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
+from .execution_controls import available_cents, debit
 from .service import (cents_from_yuan, contact_fingerprint, create_action, get_context,
                       mask_phone, money, reply, set_context)
 from .agent import Intent, parse_intent
@@ -303,6 +304,10 @@ def _request_received(conn: sqlite3.Connection, request_id: str) -> int:
     return legacy + installments
 
 
+def _refunded(conn: sqlite3.Connection, collection_id: str) -> int:
+    return conn.execute("SELECT COALESCE(SUM(amount_cents),0) FROM aa_refunds WHERE collection_id=?", (collection_id,)).fetchone()[0]
+
+
 def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     payload = json.loads(row["payload_json"])
     requests = {item["contact_id"]: item for item in conn.execute("SELECT * FROM aa_requests WHERE collection_id = ?", (row["id"],))}
@@ -313,14 +318,26 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         request = requests.get(person["id"])
         request_received = _request_received(conn, request["id"]) if request else 0
         request_payments = []
+        request_refunded = 0
         if request:
             payment_rows = conn.execute(
                 "SELECT amount_cents, transaction_id, created_at FROM aa_payment_events WHERE request_id = ? "
                 "UNION ALL SELECT amount_cents, transaction_id, created_at FROM aa_partial_payments WHERE request_id = ? "
                 "ORDER BY created_at, transaction_id", (request["id"], request["id"]),
             ).fetchall()
-            request_payments = [{"amount_yuan": money(item["amount_cents"]), "transaction_id": item["transaction_id"],
-                                 "paid_at": item["created_at"]} for item in payment_rows]
+            for item in payment_rows:
+                refund_rows = conn.execute("SELECT amount_cents,transaction_id,created_at FROM aa_refunds "
+                                           "WHERE source_transaction_id=? ORDER BY created_at,transaction_id",
+                                           (item["transaction_id"],)).fetchall()
+                refunded = sum(refund["amount_cents"] for refund in refund_rows)
+                request_refunded += refunded
+                request_payments.append({"amount_yuan": money(item["amount_cents"]), "transaction_id": item["transaction_id"],
+                                         "paid_at": item["created_at"], "refunded_yuan": money(refunded),
+                                         "net_received_yuan": money(item["amount_cents"] - refunded),
+                                         "refundable_yuan": money(item["amount_cents"] - refunded),
+                                         "refunds": [{"amount_yuan": money(refund["amount_cents"]),
+                                                      "transaction_id": refund["transaction_id"], "refunded_at": refund["created_at"]}
+                                                     for refund in refund_rows]})
         status = "self" if person["id"] == "self" else "not_required"
         if request:
             status = request["status"] if request["status"] in ("paid", "closed") else "partial" if request_received else "pending"
@@ -328,15 +345,19 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
                              "amount_yuan": person["amount_yuan"], "request_id": request["id"] if request else None,
                              "share_ratio": person.get("share_ratio"),
                              "status": status, "received_yuan": money(request_received),
+                             "refunded_yuan": money(request_refunded),
+                             "net_received_yuan": money(request_received - request_refunded),
                              "outstanding_yuan": money((request["amount_cents"] - request_received) if request else 0),
                              "payments": request_payments,
                              "paid_at": request["paid_at"] if request else None,
                              "transaction_id": request["transaction_id"] if request else None})
+    refunded = _refunded(conn, row["id"])
     return {"id": row["id"], "status": row["status"], "created_at": row["created_at"], "closed_at": row["closed_at"],
             **{key: payload[key] for key in ("note", "total_yuan", "self_yuan", "receivable_yuan", "source_transaction", "source_type")},
             "allocation_method": payload.get("allocation_method"), "share_ratios": payload.get("share_ratios"),
-            "received_yuan": money(received), "outstanding_yuan": money(target - received),
-            "net_advance_yuan": money(payload["total_cents"] - received), "participants": participants}
+            "received_yuan": money(received), "refunded_yuan": money(refunded),
+            "net_received_yuan": money(received - refunded), "outstanding_yuan": money(target - received),
+            "net_advance_yuan": money(payload["total_cents"] - received + refunded), "participants": participants}
 
 
 def list_collections(session_id: str) -> dict:
@@ -361,6 +382,91 @@ def _validate_authorization(conn: sqlite3.Connection, collection: sqlite3.Row) -
             or collection["source_transaction_id"] != (payload["source_transaction"] or {}).get("id")):
         raise HTTPException(409, "收款单与原授权不一致，未入账")
     return payload
+
+
+def _refund_snapshot(conn: sqlite3.Connection, request_id: str, source_transaction_id: str,
+                     amount_cents: int, session_id: str) -> dict:
+    request = conn.execute("SELECT * FROM aa_requests WHERE id=?", (request_id,)).fetchone()
+    if request is None:
+        raise HTTPException(404, "未找到 AA 收款请求")
+    group = _owned(conn, request["collection_id"], session_id)
+    collection_payload = _validate_authorization(conn, group)
+    if request["status"] != "paid":
+        raise HTTPException(409, "仅已付清份额的回款可以退款；未付清的回款不能用退款代替关闭请求")
+    person = next((row for row in collection_payload["participants"]
+                   if row["id"] == request["contact_id"] and row["id"] != "self"), None)
+    contact = conn.execute("SELECT * FROM contacts WHERE id=? AND user_id=? AND verified=1",
+                           (request["contact_id"], USER_ID)).fetchone()
+    if person is None or person["amount_cents"] != request["amount_cents"] or contact is None:
+        raise HTTPException(409, "收款对象与已确认记录不一致，未退款")
+    if contact_fingerprint(contact) != person["contact_fingerprint"]:
+        raise HTTPException(409, "付款人信息已变化，请重新核对收款单")
+    source = conn.execute("""SELECT amount_cents,created_at FROM aa_payment_events
+        WHERE request_id=? AND transaction_id=?
+        UNION ALL
+        SELECT amount_cents,created_at FROM aa_partial_payments
+        WHERE request_id=? AND transaction_id=?""",
+        (request_id, source_transaction_id, request_id, source_transaction_id)).fetchone()
+    if source is None:
+        raise HTTPException(409, "原回款流水与该收款请求不匹配，未退款")
+    refunded = conn.execute("SELECT COALESCE(SUM(amount_cents),0) FROM aa_refunds WHERE source_transaction_id=?",
+                            (source_transaction_id,)).fetchone()[0]
+    remaining = source["amount_cents"] - refunded
+    if remaining <= 0:
+        raise HTTPException(409, "该笔回款已全部退回")
+    if amount_cents <= 0 or amount_cents > remaining:
+        raise HTTPException(409, f"退款不能超过该笔回款的剩余可退金额 ¥{money(remaining)}")
+    return {"collection_id": group["id"], "request_id": request_id,
+            "source_transaction_id": source_transaction_id, "source_amount_cents": source["amount_cents"],
+            "source_amount_yuan": money(source["amount_cents"]), "source_paid_at": source["created_at"],
+            "remaining_refundable_cents": remaining, "remaining_refundable_yuan": money(remaining),
+            "amount_cents": amount_cents, "amount_yuan": money(amount_cents),
+            "recipient_contact_id": contact["id"], "recipient_name": person["name"],
+            "recipient_phone_masked": mask_phone(contact["phone"]), "collection_note": collection_payload["note"]}
+
+
+def prepare_refund(request_id: str, session_id: str, source_transaction_id: str, amount_yuan: str) -> dict:
+    amount = share_cents(amount_yuan)
+    if amount <= 0:
+        raise HTTPException(422, "退款金额须大于 0")
+    with db_session() as conn:
+        details = _refund_snapshot(conn, request_id, source_transaction_id, amount, session_id)
+        available = available_cents(conn)
+        if amount > available:
+            raise HTTPException(409, f"可用余额不足，当前可退金额上限为 ¥{money(max(available, 0))}")
+        tier = "red" if amount > 100_000 else "yellow"
+        action = create_action(conn, session_id, "aa_refund", tier, details)
+        return reply("请确认将这部分已到账 AA 回款退回原付款人。退款会从可用余额扣除并保留原回款记录。",
+                     session_id, "offline", pending_action=action)
+
+
+def execute_refund(conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict) -> dict:
+    action = conn.execute("SELECT * FROM actions WHERE id=?", (action_id,)).fetchone()
+    if (action is None or action["type"] != "aa_refund" or action["session_id"] != session_id
+            or action["tier"] != ("red" if payload["amount_cents"] > 100_000 else "yellow")):
+        raise HTTPException(409, "退款授权记录不一致，未执行")
+    fresh = _refund_snapshot(conn, payload["request_id"], payload["source_transaction_id"],
+                             payload["amount_cents"], session_id)
+    if payload != fresh:
+        raise HTTPException(409, "回款、收款人或可退金额已变化，请重新核对退款计划")
+    debit(conn, payload["amount_cents"])
+    transaction_id = f"aa-refund-{action_id}"
+    timestamp = business_now(conn).isoformat(timespec="seconds")
+    conn.execute("""INSERT INTO transactions(id,account_id,posted_on,direction,amount_cents,counterparty,category,note,action_id)
+        VALUES(?,?,?,'out',?,?,'AA退款',?,?)""",
+        (transaction_id, ACCOUNT_ID, business_date(conn), payload["amount_cents"], payload["recipient_name"],
+         f"退回 AA 回款：{payload['collection_note']}", action_id))
+    conn.execute("INSERT INTO aa_refunds(id,collection_id,request_id,source_transaction_id,transaction_id,amount_cents,created_at) "
+                 "VALUES(?,?,?,?,?,?,?)",
+                 (action_id, payload["collection_id"], payload["request_id"], payload["source_transaction_id"],
+                  transaction_id, payload["amount_cents"], timestamp))
+    audit(conn, session_id, "aa_receipt_refunded", {"collection_id": payload["collection_id"],
+          "request_id": payload["request_id"], "source_transaction_id": payload["source_transaction_id"],
+          "transaction_id": transaction_id, "amount_yuan": payload["amount_yuan"], "simulated": True})
+    return {"status": "completed", "action_id": action_id, "collection_id": payload["collection_id"],
+            "request_id": payload["request_id"], "source_transaction_id": payload["source_transaction_id"],
+            "transaction_id": transaction_id, "amount_yuan": payload["amount_yuan"],
+            "message": f"已模拟退回 {payload['recipient_name']} ¥{payload['amount_yuan']}；原回款保留，具体业务关系请另行核对。"}
 
 
 def simulate_payment(request_id: str, session_id: str) -> dict:
