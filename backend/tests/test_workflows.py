@@ -73,6 +73,13 @@ def test_transfer_failure_question_does_not_prepare_a_new_debit(client):
         assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
 
 
+def test_transfer_success_after_instruction_is_not_misread_as_history_query(client):
+    result = send(client, "转给林悦300元，成功后记账", session_id="success-condition")
+    assert result["pending_action"]["type"] == "transfer"
+    assert result["pending_action"]["details"]["recipient"] == "林悦"
+    assert result["pending_action"]["details"]["amount_yuan"] == "300.00"
+
+
 def test_prior_transfer_question_is_read_only(client):
     result = send(client, "我之前给林悦转过300元吗")
     assert "pending_action" not in result

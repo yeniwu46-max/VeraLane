@@ -255,16 +255,28 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
 
 
 _TRANSFER_HISTORY_MARKER = re.compile(
-    r"查|查询|核对|记录|历史|失败|成功|转过|转了|有没有|是否|吗|不记得|没到账|未到账"
+    r"查|查询|核对|记录|历史|转过|转了|有没有|是否|吗|不记得|没到账|未到账"
 )
 _TRANSFER_HISTORY_VERB = re.compile(r"转账|转给|转过|转了|汇给|打给|转出|转入")
+_TRANSFER_HISTORY_STATUS_QUESTION = re.compile(
+    r"(?:为什么|为何|原因|怎么回事|怎么办).{0,24}(?:转账|转给|转过|汇给|打给|转出|转入).{0,24}(?:失败|拒绝|成功|没到账|未到账|到账)"
+    r"|(?:转账|转给|转过|汇给|打给|转出|转入).{0,24}(?:失败|拒绝|成功|没到账|未到账|到账).{0,8}(?:吗|没有|没|原因|怎么|为何|为什么)"
+)
 _UNSUPPORTED_HISTORY_PERIOD = re.compile(r"上周|这周|本周|最近|近\s*[一二三四五六七八九十两\d]+|过去|下个月|本周以来|今年以来|去年以来")
 
 
 def _is_transfer_history_query(text: str) -> bool:
     """Match explicit read-only questions about transfer records, not transfer commands."""
     command = instruction_text(text)
-    return bool(_TRANSFER_HISTORY_VERB.search(command) and _TRANSFER_HISTORY_MARKER.search(command))
+    if not _TRANSFER_HISTORY_VERB.search(command):
+        return False
+    if _TRANSFER_HISTORY_MARKER.search(command):
+        return True
+    if not _TRANSFER_HISTORY_STATUS_QUESTION.search(command):
+        return False
+    # Future-condition phrasing such as “转账成功后” is part of a requested operation,
+    # not a question about a transfer that already happened.
+    return not re.search(r"(?:成功|失败|拒绝|到账)\s*(?:后|以后|之后)", command)
 
 
 def _query_transfer_history(
