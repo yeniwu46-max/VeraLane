@@ -1,4 +1,7 @@
-param([int]$Port = 8000)
+param(
+    [int]$Port = 8000,
+    [ValidateRange(1, 16)] [int]$BlasThreads = 1
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 foreach ($toolName in @('uv','npm')) {
@@ -18,6 +21,11 @@ Push-Location (Join-Path $projectRoot 'backend')
 try {
     uv sync --frozen
     if ($LASTEXITCODE -ne 0) { throw 'Backend dependency install failed' }
+    # Keep OCR/NumPy from allocating one BLAS worker per logical CPU by default.
+    $threadCount = $BlasThreads.ToString([Globalization.CultureInfo]::InvariantCulture)
+    $env:OPENBLAS_NUM_THREADS = $threadCount
+    $env:OMP_NUM_THREADS = $threadCount
+    $env:MKL_NUM_THREADS = $threadCount
     Write-Host "Open http://127.0.0.1:$Port (local fictional banking demo). Ctrl+C stops the server."
     uv run --frozen --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -ne 0) { throw 'Demo server stopped with an error' }

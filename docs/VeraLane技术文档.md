@@ -121,7 +121,7 @@ Windows 需要 Python 3.11+、uv、Node.js 20.19+（或 22.12+）、npm：
 .\scripts\run-demo.ps1
 ```
 
-默认只监听 `127.0.0.1:8000`，构建 React 后由 FastAPI 提供前端与 API。`.env` 不覆盖；首次没有配置文件时从 `.env.example` 复制。开发时分别运行 `uv run --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` 和 `npm run dev`。部署/源码步骤参照根目录 README。
+默认只监听 `127.0.0.1:8000`，构建 React 后由 FastAPI 提供前端与 API。`.env` 不覆盖；首次没有配置文件时从 `.env.example` 复制。演示启动默认把 OpenBLAS、OMP 和 MKL 线程限制为 1，减少 OCR/NumPy 的线程与内存占用；可用 `-BlasThreads 2` 调整为 2（支持 1–16）。开发时分别运行 `uv run --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` 和 `npm run dev`。部署/源码步骤参照根目录 README。
 
 最外层 ASGI 响应包装器对正常页面/API、404 和框架生成的 500 响应统一添加 CSP（仅同源脚本与连接、禁止对象和嵌入）、`nosniff`、`X-Frame-Options: DENY`、Referrer Policy 与限制性 Permissions Policy。为动态图表和聊天面板尺寸样式保留 inline style。仅 HTTPS 请求添加 HSTS；当前本机默认 HTTP 不提供传输加密，不可据此暴露到公网。
 
