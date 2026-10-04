@@ -155,8 +155,21 @@ def test_production_static_mount_is_only_public_dist_and_keeps_api_priority(clie
     mount = mounts[0]
     assert Path(mount.app.directory).resolve() == (main.ROOT / "frontend" / "dist").resolve()
     assert mount.app.follow_symlink is False
-    assert client.get("/api/health").json() == {"status": "ok"}
-    assert client.get("/").status_code == 200
+    api_response = client.get("/api/health")
+    page_response = client.get("/")
+    assert api_response.json() == {"status": "ok"}
+    assert page_response.status_code == 200
+    for response in (api_response, page_response):
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+        csp = response.headers["content-security-policy"]
+        assert "default-src 'self'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert "script-src 'self'" in csp
+        assert "object-src 'none'" in csp
+        assert "strict-transport-security" not in response.headers
     # Inspect response statuses only: never print or retain a potential secret body.
     for path in ("/.env", "/backend/.env", "/data/veralane.sqlite3", "/backend/data/veralane.sqlite3", "/%2e%2e/.env", "/%2e%2e/%2e%2e/backend/data/veralane.sqlite3"):
         assert client.get(path).status_code == 404, path

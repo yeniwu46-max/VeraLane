@@ -12,7 +12,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, Response, Query
+from fastapi import FastAPI, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -61,6 +61,25 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="VeraLane Demo API", version="0.2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
+
+
 app.include_router(subscription_router)
 app.include_router(insights_router)
 app.include_router(plans_router)
