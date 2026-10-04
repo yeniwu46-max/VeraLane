@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-03",
+  "sample_size": 3,
+  "scope": "只读和待确认计划，不执行转账。少量样本不能代表总体准确率。",
+  "cases": [
+    {
+      "case": "balance",
+      "input": "我的账户余额是多少？",
+      "mode": "offline",
+      "latency_ms": 723,
+      "message": "日常账户余额为 ¥8520.63，可用余额 ¥8520.63，预留 ¥0.00。数据来自模拟账户。",
+      "action_type": null,
+      "insight_query": null,
+      "executed": false
+    },
+    {
+      "case": "bills",
+      "input": "上个月餐饮花了多少？",
+      "mode": "offline",
+      "latency_ms": 646,
+      "message": "2026-08-01 至 2026-08-31，匹配支出 1 笔，共 ¥137.00。",
+      "action_type": null,
+      "insight_query": "上个月餐饮花了多少？",
+      "executed": false
+    },
+    {
+      "case": "transfer",
+      "input": "转给林悦10元，备注模型验收",
+      "mode": "offline",
+      "latency_ms": 589,
+      "message": "请核对收款人、金额和备注。确认后才会从模拟账户扣款。",
+      "action_type": "transfer",
+      "insight_query": null,
+      "executed": false
+    }
+  ],
+  "diagnosis": {
+    "http_status": 401,
+    "reason": "model_http_error",
+    "notice": "API鉴权未通过。三项功能均由规则降级返回，不能计作真实模型任务成功率。后续诊断请求也未执行业务写操作。"
+  }
+}

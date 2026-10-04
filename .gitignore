@@ -7,4 +7,5 @@ node_modules/
 frontend/dist/
 data/*.sqlite3
 data/*.sqlite3-*
+data/*.log
 

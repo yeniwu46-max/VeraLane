@@ -5,6 +5,9 @@ export type BillTransaction = {
   counterparty: string
   amount_yuan: string
   note: string
+  original_category?: string
+  classification_reason?: string
+  classification_version?: number
 }
 
 export type Report = {

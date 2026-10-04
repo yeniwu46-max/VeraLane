@@ -111,7 +111,7 @@ def test_bill_exports_include_summary_and_transaction_details(client):
     assert "attachment" in csv_response.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(csv_response.text.lstrip("\ufeff"))))
     assert ["总支出（元）", "1860.30"] in rows
-    assert ["2026-09-28", "tx-1", "城市咖啡", "餐饮", "早餐", "45.90"] in rows
+    assert ["2026-09-28", "tx-1", "城市咖啡", "餐饮", "早餐", "45.90", "餐饮", "", ""] in rows
 
     json_response = client.get("/api/bills/export", params={"period": "本月", "format": "json"})
     assert json_response.status_code == 200

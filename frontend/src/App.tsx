@@ -2,6 +2,17 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as Reac
 import { ReportCard, type BillTransaction, type ChartView, type Report } from './BillVisuals'
 import { SchedulePanel } from './SchedulePanel'
 import { AaPanel } from './AaPanel'
+import { InsightPanel } from './InsightPanel'
+import { SubscriptionPanel } from './SubscriptionPanel'
+import { PlansPanel } from './PlansPanel'
+import { InvestmentPanel } from './InvestmentPanel'
+import { FundsPanel } from './FundsPanel'
+import { CardPanel } from './CardPanel'
+import { AliasPanel } from './AliasPanel'
+import { LifePanel } from './LifePanel'
+import { AdvancedTransfersPanel } from './AdvancedTransfersPanel'
+import { BillPreferencesPanel } from './BillPreferencesPanel'
+import { DemoVerification } from './OperationConfirm'
 import type { AaDraft, AaSeed, AaSource } from './aaApi'
 import { formatBankTime } from './bankTime'
 import './App.css'
@@ -18,7 +29,7 @@ type PendingAction = {
   details: Record<string, string | number>
 }
 
-type View = 'chat' | 'transfer' | 'bills' | 'subscriptions'
+type View = 'chat' | 'transfer' | 'bills' | 'subscriptions' | 'tasks' | 'investments' | 'cards'
 type Contact = { id: string; name: string; phone_masked: string }
 type BillPeriod = '本月' | '上个月' | '今年' | '去年'
 
@@ -30,6 +41,8 @@ type AgentReply = {
   report?: Report
   choices?: { id: string; name: string; phone: string }[]
   aa_draft?: AaDraft
+  insight_query?: string
+  workflow?: {view:View;section?:'plans'|'life';message:string;plan_id?:string}
 }
 
 type ConversationMessage = {
@@ -46,7 +59,8 @@ type Overview = {
   demo_date: string
   demo_now: string
   model_configured: boolean
-  account: { label: string; balance_yuan: string }
+  model_status?: {mode:string;reason:string|null;notice:string;usage?:{attempts:number;accounted_tokens:number;estimated_cost_yuan:string|null};limits?:{max_calls:number;max_total_tokens:number}}
+  account: { label: string; balance_yuan: string; available_yuan: string; reserved_yuan: string }
   transactions: {
     id: string
     posted_on: string
@@ -85,6 +99,9 @@ const navigation: { view: View; label: string }[] = [
   { view: 'transfer', label: '智能转账' },
   { view: 'bills', label: '账单分析' },
   { view: 'subscriptions', label: '订阅管理' },
+  { view: 'tasks', label: '任务中心' },
+  { view: 'investments', label: '理财助手' },
+  { view: 'cards', label: '卡片管理' },
 ]
 
 function NavIcon({ view }: { view: View }) {
@@ -94,6 +111,9 @@ function NavIcon({ view }: { view: View }) {
     {view === 'transfer' && <><path d="M4 17 17 4M8 4h9v9" /><path d="M4 8v12h12" /></>}
     {view === 'bills' && <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>}
     {view === 'subscriptions' && <><path d="M6 7a8 8 0 0 1 13-1l2 2M18 17a8 8 0 0 1-13 1l-2-2" /><path d="M21 3v5h-5M3 21v-5h5" /></>}
+    {view === 'tasks' && <><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9h8M8 13h8M8 17h5M9 2v4M15 2v4"/></>}
+    {view === 'investments' && <><path d="M3 20h18M5 16l5-6 4 3 6-9M15 4h5v5"/></>}
+    {view === 'cards' && <><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20M6 15h4"/></>}
   </svg>
 }
 
@@ -156,6 +176,8 @@ function ActionCard({
   const isScheduled = action.type === 'scheduled_transfer'
   const isTransfer = action.type === 'transfer' || isScheduled
   const [reviewed, setReviewed] = useState(false)
+  const [verified, setVerified] = useState(false)
+  const [verificationBusy, setVerificationBusy] = useState(false)
   const target = isTransfer ? String(action.details.recipient) : String(action.details.merchant)
   const confirmLabel = isScheduled ? `确认预约 ${currency(String(action.details.amount_yuan))}` : isTransfer
     ? `确认模拟转出 ${currency(String(action.details.amount_yuan))}`
@@ -183,13 +205,16 @@ function ActionCard({
         </dl>
       )}
       <div className="action-card__footer">
+        {Array.isArray(action.details.similar_transfers) && <p className="page-notice">最近三天向同一联系人转过相同金额，请核对是否重复付款。{(action.details.similar_transfers as {posted_on:string;amount_yuan:string;id:string}[]).map(tx=><small key={tx.id}> {tx.posted_on} · ¥{tx.amount_yuan} · {tx.id}</small>)}合法重复付款仍可明确确认。</p>}
         <div className="action-card__review">
-          {action.tier === 'red' ? (
-            <p>已触发强验证。当前演示环境不能继续执行此操作。</p>
+          {action.tier === 'red' && isScheduled ? (
+            <p>当前预约仅支持单笔不超过 ¥1,000，请调整金额或选择即时转账。</p>
           ) : completed ? (
             <p>{isScheduled ? '预约授权已保存。前往智能转账页“我的预约”查看实时执行状态。' : '操作已完成。结果已写入模拟账本与操作记录。'}</p>
           ) : (
             <>
+              {action.tier === 'red' && !isScheduled && <DemoVerification actionId={action.id} sessionId={getSessionId()} onVerified={() => setVerified(true)} onReset={() => { setVerified(false); setReviewed(false) }} onBusyChange={setVerificationBusy} disabled={busy || completed} />}
+              {verified && <p>已通过当前计划的模拟验证。</p>}
               <label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /><span>我已核对{isScheduled ? '收款人、金额、备注与执行时间，授权到期自动转账' : isTransfer ? '收款人、金额与备注，同意执行此操作' : '商户及代扣协议，同意执行此操作'}</span></label>
               {isScheduled && <p className="schedule-consent">到期后 10 分钟内通过检查后自动执行，无需再次确认；不提前冻结余额。超时或检查失败均不自动重试。</p>}
               <p>待确认计划有效期 10 分钟；执行时会再次检查权限与状态。</p>
@@ -199,10 +224,10 @@ function ActionCard({
         <button
           type="button"
           className="confirm-button"
-          disabled={busy || completed || action.tier === 'red' || !reviewed}
+          disabled={busy || verificationBusy || completed || (action.tier === 'red' && (!verified || isScheduled)) || !reviewed}
           onClick={() => onConfirm(action.id)}
         >
-          {completed ? isScheduled ? '已预约' : '已执行' : action.tier === 'red' ? '需要强验证' : busy ? '正在处理…' : confirmLabel}
+          {completed ? isScheduled ? '已预约' : '已执行' : busy ? '正在处理…' : verificationBusy ? '正在验证…' : action.tier === 'red' ? isScheduled ? '暂不支持高风险预约' : verified ? confirmLabel : '完成强验证后确认' : confirmLabel}
         </button>
       </div>
     </div>
@@ -229,8 +254,11 @@ function Provenance({ reply }: { reply: AgentReply }) {
 function App() {
   const [sessionId] = useState(getSessionId)
   const [view, setView] = useState<View>(viewFromHash)
-  const [transferTab, setTransferTab] = useState<'transfer' | 'aa'>('transfer')
+  const [taskTab, setTaskTab] = useState<'plans' | 'funds' | 'life'>('plans')
+  const [workflowSeed, setWorkflowSeed] = useState<AgentReply['workflow']>()
+  const [transferTab, setTransferTab] = useState<'transfer' | 'aa' | 'advanced'>('transfer')
   const [aaSeed, setAaSeed] = useState<AaSeed | undefined>()
+  const [insightQuestion, setInsightQuestion] = useState<string>()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [transferContactId, setTransferContactId] = useState('')
@@ -243,10 +271,9 @@ function App() {
   const [smartTransferNotice, setSmartTransferNotice] = useState('')
   const [billPeriod, setBillPeriod] = useState<BillPeriod>('本月')
   const [billReport, setBillReport] = useState<Report | null>(null)
+  const [billRevision, setBillRevision] = useState(0)
   const [billChart, setBillChart] = useState<ChartView>('bars')
   const [selectedTransaction, setSelectedTransaction] = useState<BillTransaction | null>(null)
-  const [cancelAction, setCancelAction] = useState<PendingAction | null>(null)
-  const [cancelNotice, setCancelNotice] = useState('')
   const [messages, setMessages] = useState<ConversationMessage[]>([
     {
       id: 'welcome',
@@ -347,7 +374,7 @@ function App() {
         setError(cause instanceof Error ? cause.message : '账单加载失败')
       })
     return () => controller.abort()
-  }, [view, billPeriod])
+  }, [view, billPeriod, billRevision])
   useEffect(() => { threadEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => {
     const dialog = transactionDialog.current
@@ -417,25 +444,6 @@ function App() {
     }
   }
 
-  async function prepareDirectCancel(subscriptionId: string) {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    setCancelAction(null)
-    try {
-      const result = await apiJson<AgentReply>(`/api/subscriptions/${subscriptionId}/prepare-cancel`, {
-        method: 'POST', body: JSON.stringify({ session_id: sessionId }),
-      })
-      setCancelAction(result.pending_action || null)
-      setCancelNotice(result.message)
-      await refreshOverview()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '取消计划生成失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function sendMessage(value: string) {
     const message = value.trim()
     if (!message || busy) return
@@ -468,11 +476,10 @@ function App() {
       })
       setCompletedActions((current) => [...current, actionId])
       setScheduleRevision((current) => current + 1)
-      if (transferAction?.id !== actionId && cancelAction?.id !== actionId && smartTransferReply?.pending_action?.id !== actionId) {
+      if (transferAction?.id !== actionId && smartTransferReply?.pending_action?.id !== actionId) {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'assistant', text: result.message }])
       }
       if (transferAction?.id === actionId) setTransferNotice(result.message)
-      if (cancelAction?.id === actionId) setCancelNotice(result.message)
       if (smartTransferReply?.pending_action?.id === actionId) setSmartTransferNotice(result.message)
       await refreshOverview()
     } catch (cause) {
@@ -500,7 +507,7 @@ function App() {
       </aside>
 
       <main className={`main-column ${view === 'chat' ? 'main-column--chat' : 'main-column--page'}`}>
-        <header className="topbar"><span>VeraLane / {navigation.find((item) => item.view === view)?.label}</span><div className="topbar__actions"><span className="topbar__demo">模拟环境</span><button type="button" className="topbar__toggle" aria-expanded={showInsights} onClick={() => { setShowInsights((current) => !current); setChatSize(null) }}>{showInsights ? '收起概览' : '打开概览'}</button></div></header>
+        <header className="topbar"><span>VeraLane / {navigation.find((item) => item.view === view)?.label}</span><div className="topbar__actions"><span className="topbar__demo">模拟环境 · {overview?.model_status?.mode==='deepseek'?'模型可用':'规则模式'}</span><button type="button" className="topbar__toggle" aria-expanded={showInsights} onClick={() => { setShowInsights((current) => !current); setChatSize(null) }}>{showInsights ? '收起概览' : '打开概览'}</button></div></header>
         {view === 'chat' ? <>
         <section className="conversation-panel" aria-label="银行智能体对话" ref={chatPanel} style={chatSize ? { width: chatSize.width, height: chatSize.height } : undefined}>
           <div className="conversation-panel__header"><div><h1>VeraLane 对话</h1><p>账户与操作来自模拟银行环境</p></div><span className="status-pill"><i />{overview ? '服务就绪' : error ? '连接中断' : '连接中'}</span></div>
@@ -522,6 +529,8 @@ function App() {
                   )}
                   {item.reply?.choices && <div className="choice-note">{item.reply.choices.map((choice) => `${choice.name} ${choice.phone}`).join('　/　')}</div>}
                   {item.reply?.aa_draft && <button type="button" className="aa-quiet aa-chat-entry" onClick={() => openAa({ reply: item.reply })}>核对 AA 分摊草稿 ↗</button>}
+                  {item.reply?.insight_query && <button type="button" className="aa-quiet" onClick={() => { setInsightQuestion(item.reply?.insight_query); window.location.hash = '/bills' }}>查看分析与交易依据 ↗</button>}
+                  {item.reply?.workflow && <button type="button" className="aa-quiet" onClick={()=>{const target=item.reply!.workflow!;setWorkflowSeed(target);if(target.section)setTaskTab(target.section);window.location.hash=`/${target.view}`}}>打开{navigation.find(n=>n.view===item.reply?.workflow?.view)?.label}继续核对 ↗</button>}
                   {item.reply && <Provenance reply={item.reply} />}
                 </div>
               </div>
@@ -544,8 +553,8 @@ function App() {
 
           {view === 'transfer' && <>
             <div className="page-header"><span>即时转账 / 智能预约 / AA 分账</span><h1>智能转账</h1><p>{transferTab === 'aa' ? '从一句话或一笔消费开始分摊，逐人核对收款进度。' : '说出转给谁、多少钱、什么时候；核对计划后，立即办理或预约到期执行。'}</p></div>
-            <div className="transfer-tabs" role="group" aria-label="转账业务类型"><button type="button" aria-pressed={transferTab === 'transfer'} onClick={() => setTransferTab('transfer')}>转账 / 预约</button><button type="button" aria-pressed={transferTab === 'aa'} onClick={() => setTransferTab('aa')}>AA 收款</button></div>
-            {transferTab === 'aa' ? <AaPanel sessionId={sessionId} contacts={contacts} seed={aaSeed} onChanged={() => void refreshOverview()} onCreated={() => setAaSeed(undefined)} /> : <>
+            <div className="transfer-tabs" role="group" aria-label="转账业务类型"><button type="button" aria-pressed={transferTab === 'transfer'} onClick={() => setTransferTab('transfer')}>转账 / 预约</button><button type="button" aria-pressed={transferTab === 'aa'} onClick={() => setTransferTab('aa')}>AA 收款</button><button type="button" aria-pressed={transferTab==='advanced'} onClick={()=>setTransferTab('advanced')}>周期 / 批量</button></div>
+            {transferTab === 'advanced' ? <AdvancedTransfersPanel sessionId={sessionId} contacts={contacts} onChanged={refreshOverview}/> : transferTab === 'aa' ? <AaPanel sessionId={sessionId} contacts={contacts} seed={aaSeed} onChanged={() => void refreshOverview()} onCreated={() => setAaSeed(undefined)} /> : <>
             {overview?.demo_now && <p className="transfer-clock">当前演示时间：{formatBankTime(overview.demo_now)}（北京时间） · “明天”等表达以此为准</p>}
             <section className="smart-transfer-card">
               <div className="smart-transfer-card__head"><div><span>自然语言入口</span><h2>一句话，生成转账计划</h2></div><strong>01 / 理解并核验</strong></div>
@@ -560,6 +569,7 @@ function App() {
               {smartTransferReply?.aa_draft && <button type="button" className="aa-quiet aa-chat-entry" onClick={() => openAa({ reply: smartTransferReply })}>核对 AA 分摊草稿 ↗</button>}
             </section>
             <SchedulePanel sessionId={sessionId} revision={scheduleRevision} onChanged={() => void refreshOverview()} />
+            <AliasPanel sessionId={sessionId} onChanged={refreshOverview} />
             <details className="manual-transfer"><summary>手动填写转账信息 <span>备选方式</span></summary><div className="manual-transfer__content">
                 <form className="transfer-form" onSubmit={(event) => void prepareDirectTransfer(event)}>
                   <label>收款人<select aria-label="选择收款人" required value={transferContactId} onChange={(event) => { setTransferContactId(event.target.value); setTransferAction(null); setTransferNotice('') }}><option value="">请选择收款人</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
@@ -575,7 +585,9 @@ function App() {
 
           {view === 'bills' && <>
             <div className="page-header"><span>消费洞察 · 来源可追溯</span><h1>账单分析</h1><p>从模拟交易账本计算支出，按分类展示，并标明需要人工复核的金额。</p></div>
-            <div className="bill-toolbar"><div className="period-tabs" role="group" aria-label="账单期间">{(['本月', '上个月', '今年', '去年'] as BillPeriod[]).map((period) => <button type="button" key={period} aria-pressed={billPeriod === period} className={billPeriod === period ? 'period-tabs__active' : ''} onClick={() => { if (period === billPeriod) return; setBillReport(null); setSelectedTransaction(null); setBillPeriod(period); setError('') }}>{period}</button>)}</div><div className="bill-export" aria-label="导出账单"><a href={`/api/bills/export?period=${encodeURIComponent(billPeriod)}&format=csv`} download>导出 CSV</a><a href={`/api/bills/export?period=${encodeURIComponent(billPeriod)}&format=json`} download>导出 JSON</a><button type="button" disabled={!billReport} onClick={() => window.print()}>打印 / PDF</button></div></div>
+            <div className="bill-toolbar"><div className="period-tabs" role="group" aria-label="账单期间">{(['本月', '上个月', '今年', '去年'] as BillPeriod[]).map((period) => <button type="button" key={period} aria-pressed={billPeriod === period} className={billPeriod === period ? 'period-tabs__active' : ''} onClick={() => { if (period === billPeriod) return; setBillReport(null); setSelectedTransaction(null); setInsightQuestion(undefined); setBillPeriod(period); setError('') }}>{period}</button>)}</div><div className="bill-export" aria-label="导出账单"><a href={`/api/bills/export?period=${encodeURIComponent(billPeriod)}&format=csv`} download>导出 CSV</a><a href={`/api/bills/export?period=${encodeURIComponent(billPeriod)}&format=json`} download>导出 JSON</a><button type="button" disabled={!billReport} onClick={() => window.print()}>打印 / PDF</button></div></div>
+            <InsightPanel key={billRevision} sessionId={sessionId} period={billPeriod} initialQuestion={insightQuestion} onTransaction={setSelectedTransaction} />
+            <BillPreferencesPanel sid={sessionId} period={billPeriod} onChanged={()=>{setBillRevision(n=>n+1);void refreshOverview()}}/>
             {billReport ? <>
               <div className="chart-switch" role="group" aria-label="图表呈现方式">{([['bars', '分类对比'], ['donut', '占比环图'], ['trend', '日期趋势']] as [ChartView, string][]).map(([chart, label]) => <button type="button" key={chart} aria-pressed={billChart === chart} className={billChart === chart ? 'chart-switch__active' : ''} onClick={() => setBillChart(chart)}>{label}</button>)}</div>
               <ReportCard report={billReport} view={billChart} />
@@ -583,27 +595,22 @@ function App() {
                 {billReport.transactions.length ? <div className="ledger-list">{billReport.transactions.map((tx) => <button type="button" className="ledger-row" key={tx.id} onClick={() => setSelectedTransaction(tx)} aria-label={`查看 ${tx.posted_on} ${tx.counterparty} ${currency(tx.amount_yuan)} 的交易明细`}><span>{tx.posted_on}</span><strong>{tx.counterparty}</strong><small>{tx.category}</small><b>−{currency(tx.amount_yuan)}</b><i aria-hidden="true">↗</i></button>)}</div> : <p className="empty-note">这一期间没有支出记录。</p>}
               </section>
             </> : !error && <p className="loading-note">正在读取账本并计算报告…</p>}
-            <dialog className="transaction-dialog" ref={transactionDialog} onClose={() => setSelectedTransaction(null)} aria-label="交易明细">{selectedTransaction && <div><div className="transaction-dialog__head"><div><small>模拟账本 · 交易明细</small><h2>{selectedTransaction.counterparty}</h2></div><button type="button" onClick={() => transactionDialog.current?.close()} aria-label="关闭交易明细">×</button></div><strong className="transaction-dialog__amount">−{currency(selectedTransaction.amount_yuan)}</strong><dl><div><dt>交易日期</dt><dd>{selectedTransaction.posted_on}</dd></div><div><dt>交易分类</dt><dd>{selectedTransaction.category}</dd></div><div><dt>备注</dt><dd>{selectedTransaction.note || '无'}</dd></div><div><dt>交易编号</dt><dd>{selectedTransaction.id}</dd></div><div><dt>归属账单</dt><dd>{billReport?.period}</dd></div></dl>{billReport?.alerts.find((alert) => alert.transaction_id === selectedTransaction.id) && <p className="transaction-dialog__alert">规则复核：{billReport.alerts.find((alert) => alert.transaction_id === selectedTransaction.id)?.reason}</p>}<p className="transaction-dialog__foot">金额与分类来自模拟交易账本，可在当前报告中核对。</p><button type="button" className="aa-quiet aa-bill-entry" onClick={() => { const source = selectedTransaction; transactionDialog.current?.close(); openAa({ source }) }}>用这笔支出发起 AA 分摊 ↗</button></div>}</dialog>
+            <dialog className="transaction-dialog" ref={transactionDialog} onClose={() => setSelectedTransaction(null)} aria-label="交易明细">{selectedTransaction && <div><div className="transaction-dialog__head"><div><small>模拟账本 · 交易明细</small><h2>{selectedTransaction.counterparty}</h2></div><button type="button" onClick={() => transactionDialog.current?.close()} aria-label="关闭交易明细">×</button></div><strong className="transaction-dialog__amount">−{currency(selectedTransaction.amount_yuan)}</strong><dl><div><dt>交易日期</dt><dd>{selectedTransaction.posted_on}</dd></div><div><dt>交易分类</dt><dd>{selectedTransaction.category}</dd></div>{selectedTransaction.classification_reason && <><div><dt>原始分类</dt><dd>{selectedTransaction.original_category}</dd></div><div><dt>归类依据</dt><dd>{selectedTransaction.classification_reason} · v{selectedTransaction.classification_version}</dd></div></>}<div><dt>备注</dt><dd>{selectedTransaction.note || '无'}</dd></div><div><dt>交易编号</dt><dd>{selectedTransaction.id}</dd></div><div><dt>归属账单</dt><dd>{selectedTransaction.posted_on.slice(0, 7)}</dd></div></dl>{billReport?.alerts.find((alert) => alert.transaction_id === selectedTransaction.id) && <p className="transaction-dialog__alert">规则复核：{billReport.alerts.find((alert) => alert.transaction_id === selectedTransaction.id)?.reason}</p>}<p className="transaction-dialog__foot">金额与分类来自模拟交易账本，可在当前报告中核对。</p><button type="button" className="aa-quiet aa-bill-entry" onClick={() => { const source = selectedTransaction; transactionDialog.current?.close(); openAa({ source }) }}>用这笔支出发起 AA 分摊 ↗</button></div>}</dialog>
           </>}
 
-          {view === 'subscriptions' && <>
-            <div className="page-header"><span>周期扣费 · 协议可核对</span><h1>订阅管理</h1><p>对照连续扣费记录与代扣协议，查看续费日；取消前先确认具体协议。</p></div>
-            <div className="subscription-grid">{overview?.subscriptions.map((sub) => {
-              const signal = overview.subscription_signals.find((item) => item.merchant === sub.merchant)
-              return <article className="subscription-card" key={sub.id}><div className="subscription-card__top"><span className="subscription-card__icon">◎</span><span className={`subscription-state ${sub.status === 'active' ? '' : 'subscription-state--off'}`}>{sub.status === 'active' ? '生效中' : '已取消'}</span></div><h2>{sub.merchant}</h2><p className="subscription-card__amount">{currency(sub.amount_yuan)} <small>/ 期</small></p><div className="subscription-card__facts"><span>下次扣费</span><strong>{sub.status === 'active' ? sub.renewal_on : '已停止'}</strong></div><div className="subscription-card__evidence">{signal ? `连续两个月有扣费 · 证据 ${signal.evidence_ids.join('、')}` : '暂无连续扣费证据'}{signal?.reminder && sub.status === 'active' ? ` · ${signal.days_until_renewal} 天后续费` : ''}</div><button type="button" className="page-secondary" disabled={busy || sub.status !== 'active'} onClick={() => void prepareDirectCancel(sub.id)}>{sub.status === 'active' ? '查看取消计划' : '协议已取消'}</button></article>
-            })}</div>
-            {cancelNotice && <p className="page-notice" role="status">{cancelNotice}</p>}
-            {cancelAction && <div className="page-action"><ActionCard key={cancelAction.id} action={cancelAction} onConfirm={confirmAction} busy={busy} completed={completedActions.includes(cancelAction.id)} /></div>}
-          </>}
+          {view === 'subscriptions' && <SubscriptionPanel sessionId={sessionId} onChanged={refreshOverview} />}
+          {view === 'tasks' && <><div className="workspace-tabs" role="tablist" aria-label="任务类型"><button role="tab" aria-selected={taskTab==='plans'} onClick={()=>setTaskTab('plans')}>支出优化</button><button role="tab" aria-selected={taskTab==='life'} onClick={()=>setTaskTab('life')}>生日计划</button><button role="tab" aria-selected={taskTab==='funds'} onClick={()=>setTaskTab('funds')}>资金预留与时钟</button></div>{taskTab==='plans'?<PlansPanel initialPlanId={workflowSeed?.section==='plans'?workflowSeed.plan_id:undefined} initialMessage={workflowSeed?.section==='plans'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='life'?<LifePanel initialMessage={workflowSeed?.section==='life'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:<FundsPanel sessionId={sessionId} onChanged={refreshOverview}/>}</>}
+          {view === 'investments' && <InvestmentPanel initialMessage={workflowSeed?.view==='investments'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
+          {view === 'cards' && <CardPanel initialMessage={workflowSeed?.view==='cards'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
         </section>}
       </main>
 
       {showInsights && <aside className="insight-column" aria-label="账户概览">
-        <section className="account-panel"><div className="panel-heading"><span>日常账户</span><span className="small-dot" /></div><p>当前余额</p><strong>{overview ? currency(overview.account.balance_yuan) : '—'}</strong><small>模拟账户 · 人民币</small></section>
+        <section className="account-panel"><div className="panel-heading"><span>日常账户</span><span className="small-dot" /></div><p>当前余额</p><strong>{overview ? currency(overview.account.balance_yuan) : '—'}</strong><small>可用 {overview ? currency(overview.account.available_yuan) : '—'} · 预留 {overview ? currency(overview.account.reserved_yuan) : '—'}</small></section>
         <section className="rail-panel"><h3>执行边界</h3><div className="policy-row"><span className="policy-indicator policy-indicator--green" /><div><strong>查询直接执行</strong><p>余额、账单与订阅查询</p></div></div><div className="policy-row"><span className="policy-indicator policy-indicator--amber" /><div><strong>变更先确认</strong><p>小额转账、取消代扣</p></div></div><div className="policy-row"><span className="policy-indicator policy-indicator--red" /><div><strong>高风险强验证</strong><p>日累计超 ¥1,000 的转账</p></div></div></section>
         <section className="rail-panel"><div className="rail-panel__title"><h3>最近交易</h3><span>模拟账本</span></div><div className="transactions">{overview?.transactions.slice(0, 4).map((tx) => <div className="transaction" key={tx.id}><span className="transaction__icon">{tx.direction === 'in' ? '↙' : '↗'}</span><div><strong>{tx.counterparty}</strong><small>{tx.posted_on} · {tx.category}</small></div><b className={tx.direction === 'in' ? 'positive' : ''}>{tx.direction === 'in' ? '+' : '−'}{currency(tx.amount_yuan)}</b></div>)}</div></section>
         <section className="rail-panel"><div className="rail-panel__title"><h3>订阅线索</h3><span>连续扣费识别</span></div>{overview?.subscription_signals.map((signal) => <div className="subscription-signal" key={signal.merchant}><div><strong>{signal.merchant}</strong><small>{signal.evidence_ids.length} 笔历史扣费 · 最近 {currency(signal.last_amount_yuan)}</small></div>{signal.reminder && <span>{signal.days_until_renewal} 天后续费</span>}</div>)}</section>
-        <section className="rail-panel audit-panel"><div className="rail-panel__title"><h3>操作记录</h3><span>可追溯</span></div>{overview?.audit.slice(0, 4).map((event, index) => <div className="audit-row" key={`${event.at}-${index}`}><i /><span>{eventLabels[event.event] || event.event}</span></div>)}</section>
+        {overview?.model_status && <details className="rail-panel"><summary>模型调用记录</summary><p>{overview.model_status.mode==='offline'?'当前使用离线规则':'模型适配已启用'}</p><p>调用 {overview.model_status.usage?.attempts ?? '—'} / {overview.model_status.limits?.max_calls ?? '—'} · 计入令牌 {overview.model_status.usage?.accounted_tokens ?? '—'}</p><p>估算费用：{overview.model_status.usage?.estimated_cost_yuan ?? '未配置单价'}</p><small>{overview.model_status.notice}</small></details>}<section className="rail-panel audit-panel"><div className="rail-panel__title"><h3>操作记录</h3><span>可追溯</span></div>{overview?.audit.slice(0, 4).map((event, index) => <div className="audit-row" key={`${event.at}-${index}`}><i /><span>{eventLabels[event.event] || event.event}</span></div>)}</section>
       </aside>}
     </div>
   )

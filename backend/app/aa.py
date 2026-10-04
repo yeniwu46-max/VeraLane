@@ -105,7 +105,7 @@ async def interpret(session_id: str, message: str, source_id: str | None = None,
         audit(conn, session_id, "intent_parsed", {"action": "aa_split", "mode": parsed.mode})
         if parsed.usage:
             conn.execute("INSERT INTO model_usage (at, model, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?)",
-                         (utc_now(), "deepseek-flash", parsed.usage["prompt_tokens"], parsed.usage["completion_tokens"]))
+                         (utc_now(), os.getenv('DEEPSEEK_MODEL', 'deepseek-flash'), parsed.usage["prompt_tokens"], parsed.usage["completion_tokens"]))
         return interpret_message(conn, session_id, message, parsed.mode, parsed.intent, source_id, reset)
 
 

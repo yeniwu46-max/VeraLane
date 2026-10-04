@@ -1,0 +1,28 @@
+.bill-preferences { margin-block: 18px; padding: 18px 20px; border: 1px solid var(--vl-line); border-radius: 8px; background: var(--vl-panel); color: var(--vl-ink); }
+.bill-preferences summary { cursor: pointer; font-size: 13px; line-height: 1.7; }
+.bill-preferences > summary { font-size: 15px; font-weight: 650; }
+.bill-preferences summary > span { margin-left: 9px; color: var(--vl-muted); font-size: 11px; font-weight: 400; }
+.bill-preferences__muted, .bill-preferences__limitations { color: var(--vl-muted); font-size: 12px; line-height: 1.8; }
+.bill-preferences__editors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; margin-block: 18px; }
+.bill-preferences__editors h3 { margin: 0 0 14px; font-size: 14px; }
+.bill-preferences__editors label { display: block; margin-block: 12px; color: var(--vl-muted); font-size: 12px; }
+.bill-preferences__editors input, .bill-preferences__editors select { display: block; width: 100%; min-width: 0; min-height: 42px; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--vl-line); border-radius: 5px; background: #102137; color: var(--vl-ink); font: inherit; }
+.bill-preferences__editors button { margin: 4px 8px 0 0; }
+.bill-preferences__budgets, .bill-preferences__future-list { list-style: none; padding: 0; margin: 12px 0; }
+.bill-preferences__budgets > li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 0; border-top: 1px solid var(--vl-line); }
+.bill-preferences__budgets > li > span { flex: 1; min-width: 180px; }
+.bill-preferences__budgets strong { font-size: 13px; }
+.bill-preferences small { display: block; color: var(--vl-muted); margin-top: 5px; font-size: 11px; overflow-wrap: anywhere; }
+.bill-preferences__budgets b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.bill-preferences__over { color: #f0a5ae; }
+.bill-preferences__forecast, .bill-preferences__history { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--vl-line); }
+.bill-preferences__forecast > details { margin-block: 10px; }
+.bill-preferences__forecast > p { font-size: 13px; line-height: 1.8; }
+.bill-preferences__forecast dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-block: 18px; }
+.bill-preferences__forecast dt { color: var(--vl-muted); font-size: 12px; }
+.bill-preferences__forecast dd { margin: 7px 0 0; font-size: 18px; font-variant-numeric: tabular-nums; }
+.bill-preferences__future-list > li { display: flex; justify-content: space-between; gap: 14px; padding-block: 8px; font-size: 12px; }
+.bill-preferences__history li { margin-block: 12px; font-size: 12px; }
+.bill-preferences .action-card { margin-block: 18px; }
+.bill-preferences input:focus-visible, .bill-preferences select:focus-visible, .bill-preferences summary:focus-visible, .bill-preferences button:focus-visible { outline: 2px solid var(--vl-blue); outline-offset: 3px; }
+@media (max-width: 700px) { .bill-preferences { padding: 14px; } .bill-preferences__editors { grid-template-columns: 1fr; gap: 20px; } .bill-preferences__forecast dl { grid-template-columns: 1fr; gap: 10px; } .bill-preferences__forecast dl > div { display: flex; justify-content: space-between; } .bill-preferences__forecast dd { margin: 0; font-size: 15px; } .bill-preferences__budgets > li > span { flex-basis: 100%; } }

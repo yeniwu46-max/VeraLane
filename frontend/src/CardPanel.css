@@ -1,0 +1,52 @@
+.card-manager { color: var(--vl-ink); min-width: 0; padding-top: 16px; }
+.card-manager > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.card-manager h1 { margin: 0 0 8px; font-size: 24px; }
+.card-manager > header p { margin: 0; font-size: 12px; color: var(--vl-muted); line-height: 1.7; }
+.card-manager button, .card-manager input, .card-manager select { font: inherit; }
+.card-manager button, .card-manager summary { cursor: pointer; }
+.card-manager button:disabled { opacity: .5; cursor: default; }
+.card-manager button:focus-visible, .card-manager input:focus-visible, .card-manager select:focus-visible, .card-manager summary:focus-visible { outline: 2px solid var(--vl-blue); outline-offset: 3px; }
+.card-manager__primary, .card-manager__quiet { min-height: 36px; border-radius: 5px; padding: 8px 12px; font-size: 12px !important; }
+.card-manager__primary { border: 0; background: var(--vl-blue-strong); color: #fff; }
+.card-manager__quiet { border: 1px solid var(--vl-line); background: transparent; color: var(--vl-blue); }
+.card-manager__quiet:not(:disabled):hover { background: var(--vl-raised); }
+.card-manager__section { padding: 20px; border: 1px solid var(--vl-line); border-radius: 8px; background: var(--vl-panel); margin-top: 16px; }
+.card-manager__section h2, .card-manager__section > summary { font-size: 15px; margin: 0; }
+.card-manager__section > summary span { font-size: 11px; color: var(--vl-muted); margin-left: 12px; }
+.card-manager__form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 12px; }
+.card-manager__form label { display: flex; flex-direction: column; flex: 1 1 150px; gap: 8px; font-size: 12px; color: var(--vl-muted); min-width: 0; }
+.card-manager input, .card-manager select { min-height: 40px; padding: 8px 10px; border: 1px solid var(--vl-line); border-radius: 5px; background: var(--vl-canvas); color: var(--vl-ink); font-size: 13px; min-width: 0; }
+.card-manager input::placeholder { color: var(--vl-muted); }
+.card-manager__muted { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 12px 0; }
+.card-manager__choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.card-manager__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 12px; margin-top: 16px; }
+.card-manager__card { text-align: left; color: var(--vl-ink); background: var(--vl-panel); border: 1px solid var(--vl-line); border-radius: 8px; padding: 16px; }
+.card-manager__card[aria-pressed='true'] { border-color: var(--vl-blue); background: var(--vl-raised); }
+.card-manager__card > span { color: var(--vl-blue); font-size: 11px; }
+.card-manager__card > strong { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; justify-content: space-between; margin: 12px 0; font-size: 14px; }
+.card-manager__card b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.card-manager__card small { display: block; color: var(--vl-muted); font-size: 11px; line-height: 1.8; }
+.card-manager__application { border-top: 1px solid var(--vl-line); padding-top: 16px; margin-top: 16px; }
+.card-manager__application > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 12px; }
+.card-manager__application strong { font-size: 13px; }
+.card-manager__application span { color: var(--vl-blue); font-size: 11px; }
+.card-manager__application p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; }
+.card-manager__application small { display: block; color: var(--vl-muted); font-size: 10px; overflow-wrap: anywhere; margin-top: 8px; }
+.card-manager__demo { margin-top: 12px; font-size: 11px; color: var(--vl-muted); }
+.card-manager__error, .card-manager__notice { padding: 12px; margin: 16px 0; border-radius: 6px; font-size: 12px; line-height: 1.7; }
+.card-manager__error { border: 1px solid #90515d; background: #422735; color: #ffd1d5; }
+.card-manager__error button { border: 0; border-bottom: 1px solid; color: inherit; background: transparent; margin-left: 12px; }
+.card-manager__notice { border: 1px solid var(--vl-line); background: var(--vl-raised); color: var(--vl-blue); }
+.card-manager > .action-card { margin-top: 20px; }
+.card-manager__authorization { padding: 12px 16px; }
+.card-manager__authorization dl { margin: 0; }
+.card-manager__authorization dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 8px 0; border-bottom: 1px solid #51494d; font-size: 12px; }
+.card-manager__authorization dt { color: #c2bcc0; }
+.card-manager__authorization dd { margin: 0; color: #f5e9dc; overflow-wrap: anywhere; }
+.card-manager__authorization p { color: #c2bcc0; font-size: 11px; line-height: 1.7; }
+@media (max-width: 600px) {
+  .card-manager > header { gap: 8px; }
+  .card-manager__section { padding: 16px 12px; }
+  .card-manager__form label { flex-basis: 100%; }
+  .card-manager__form > button { flex: 1 1 100%; }
+}

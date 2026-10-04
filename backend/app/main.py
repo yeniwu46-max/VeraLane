@@ -14,15 +14,26 @@ from typing import Literal
 
 from fastapi import FastAPI, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from .db import init_db
+from .db import init_db, ROOT
 from .service import (
     confirm_action, contact_options, direct_bill_report, direct_prepare_cancel,
     direct_prepare_transfer, overview, process_message, resolve_transfer_contact,
 )
 from .schedules import advance_to_next, cancel_schedule, list_schedules, run_due_transfers
 from . import aa
+from .subscription_intelligence import router as subscription_router
+from .insights_api import router as insights_router
+from .plans_api import router as plans_router
+from .controls_api import router as controls_router
+from .investments_api import router as investments_router
+from .cards_api import router as cards_router
+from .life_tasks_api import router as life_router
+from .aliases_api import router as aliases_router
+from .recurring_api import router as recurring_router
+from .bill_preferences_api import router as bill_preferences_router
 
 
 async def scheduler_loop():
@@ -48,7 +59,17 @@ async def lifespan(_: FastAPI):
             pass
 
 
-app = FastAPI(title="VeraLane Demo API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="VeraLane Demo API", version="0.2.0", lifespan=lifespan)
+app.include_router(subscription_router)
+app.include_router(insights_router)
+app.include_router(plans_router)
+app.include_router(controls_router)
+app.include_router(investments_router)
+app.include_router(cards_router)
+app.include_router(life_router)
+app.include_router(aliases_router)
+app.include_router(recurring_router)
+app.include_router(bill_preferences_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -109,7 +130,9 @@ def health() -> dict[str, str]:
 
 @app.get("/api/overview")
 def get_overview() -> dict:
-    return {**overview(), "model_configured": bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())}
+    from .model_budget import get_model_status
+    model_status = get_model_status()
+    return {**overview(), "model_configured": bool(os.environ.get("DEEPSEEK_API_KEY", "").strip()), "model_status": model_status}
 
 
 @app.get("/api/contacts")
@@ -148,10 +171,11 @@ def export_bill(
     writer.writerow(["分类", "支出金额（元）"])
     writer.writerows([[cell(row["name"]), row["amount_yuan"]] for row in report["categories"]])
     writer.writerow([])
-    writer.writerow(["交易日期", "交易编号", "交易对象", "分类", "备注", "支出金额（元）"])
+    writer.writerow(["交易日期", "交易编号", "交易对象", "分类", "备注", "支出金额（元）", "原始分类", "归类原因", "归类版本"])
     writer.writerows([
         [tx["posted_on"], cell(tx["id"]), cell(tx["counterparty"]),
-         cell(tx["category"]), cell(tx["note"]), tx["amount_yuan"]]
+         cell(tx["category"]), cell(tx["note"]), tx["amount_yuan"], cell(tx.get('original_category','')),
+         cell(tx.get('classification_reason') or ''), tx.get('classification_version') or '']
         for tx in report["transactions"]
     ])
     return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
@@ -198,6 +222,12 @@ def advance_demo_clock(request: ConfirmRequest) -> dict:
     return advance_to_next(request.session_id)
 
 
+@app.get('/api/demo/events')
+def demo_events(session_id: str = Query(min_length=1, max_length=100)):
+    from .jobs import events_snapshot
+    return events_snapshot(session_id)
+
+
 @app.post("/api/aa/interpret")
 async def interpret_aa(request: AaInterpretRequest) -> dict:
     return await aa.interpret(request.session_id, request.message, request.source_transaction_id, request.reset)
@@ -231,3 +261,8 @@ def close_aa(collection_id: str, request: AaOwnerRequest) -> dict:
 @app.post("/api/aa/requests/{request_id}/simulate-payment")
 def pay_aa(request_id: str, request: AaOwnerRequest) -> dict:
     return aa.simulate_payment(request_id, request.session_id)
+
+
+# Registered last: API routes take precedence. Only the built public UI is served.
+if (ROOT / 'frontend' / 'dist' / 'index.html').is_file():
+    app.mount('/', StaticFiles(directory=ROOT / 'frontend' / 'dist', html=True), name='frontend')

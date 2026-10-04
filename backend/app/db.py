@@ -164,6 +164,24 @@ def init_db() -> None:
         )
         # executescript commits any open transaction; seed rows atomically.
         conn.execute("BEGIN")
+        from .subscription_intelligence import init_schema as init_subscriptions
+        init_subscriptions(conn)
+        from .plans import init_schema as init_plans
+        init_plans(conn)
+        from .execution_controls import init_schema as init_controls
+        init_controls(conn)
+        from .investments import init_schema as init_investments
+        init_investments(conn)
+        from .cards import init_schema as init_cards
+        init_cards(conn)
+        from .life_tasks import init_schema as init_life_tasks
+        init_life_tasks(conn)
+        from .aliases import init_schema as init_aliases
+        init_aliases(conn)
+        from .recurring import init_schema as init_recurring
+        init_recurring(conn)
+        from .bill_preferences import init_schema as init_bill_preferences
+        init_bill_preferences(conn)
         conn.execute("INSERT OR IGNORE INTO demo_clock (id, now) VALUES (1, ?)",
                      (f"{DEMO_DATE}T09:00:00+08:00",))
         if conn.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():

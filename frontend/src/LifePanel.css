@@ -1,0 +1,69 @@
+.life-panel { color: var(--vl-ink); min-width: 0; padding-top: 16px; }
+.life-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.life-panel > header h2 { font-size: 22px; margin: 0 0 8px; }
+.life-panel > header p { color: var(--vl-muted); font-size: 12px; line-height: 1.7; margin: 0; }
+.life-panel button, .life-panel input, .life-panel select, .life-panel textarea { font: inherit; }
+.life-panel button { cursor: pointer; }
+.life-panel button:disabled { opacity: .5; cursor: default; }
+.life-panel button:focus-visible, .life-panel input:focus-visible, .life-panel select:focus-visible, .life-panel textarea:focus-visible { outline: 2px solid var(--vl-blue); outline-offset: 3px; }
+.life-panel__primary, .life-panel__quiet { border-radius: 5px; padding: 8px 12px; min-height: 36px; font-size: 12px !important; }
+.life-panel__primary { border: 0; color: #fff; background: var(--vl-blue-strong); }
+.life-panel__quiet { border: 1px solid var(--vl-line); color: var(--vl-blue); background: transparent; }
+.life-panel__quiet:not(:disabled):hover { background: var(--vl-raised); }
+.life-panel__section { padding: 20px; border: 1px solid var(--vl-line); border-radius: 8px; background: var(--vl-panel); margin-top: 16px; }
+.life-panel__section h3 { font-size: 15px; margin: 0 0 12px; }
+.life-panel__section h3 > span { font-size: 11px; font-weight: 400; margin-left: 12px; color: var(--vl-muted); }
+.life-panel__form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.life-panel__form label { display: flex; flex-direction: column; gap: 8px; flex: 1 1 180px; min-width: 0; font-size: 12px; color: var(--vl-muted); }
+.life-panel input, .life-panel select, .life-panel textarea { border: 1px solid var(--vl-line); background: var(--vl-canvas); color: var(--vl-ink); border-radius: 5px; min-height: 40px; padding: 8px 10px; font-size: 13px; min-width: 0; }
+.life-panel input::placeholder, .life-panel textarea::placeholder { color: var(--vl-muted); }
+.life-panel input[type='date'] { color-scheme: dark; }
+.life-panel__delivery { display: flex; flex-direction: column; gap: 8px; color: var(--vl-muted); font-size: 12px; }
+.life-panel__delivery textarea { resize: vertical; min-height: 70px; }
+.life-panel__parsed { margin-top: 12px; padding: 12px; background: var(--vl-canvas); border-radius: 5px; }
+.life-panel__parsed dl { margin: 0 0 12px; }
+.life-panel__parsed dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--vl-line); font-size: 12px; }
+.life-panel__parsed dt { color: var(--vl-muted); }
+.life-panel__parsed dd { margin: 0; overflow-wrap: anywhere; }
+.life-panel__parsed ul { color: var(--vl-gold); font-size: 11px; padding-left: 20px; line-height: 1.7; }
+.life-panel__muted { font-size: 11px; color: var(--vl-muted); line-height: 1.7; margin: 12px 0; }
+.life-panel__foot { color: var(--vl-muted); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; margin: 16px 0 0; }
+.life-panel__task { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0; color: var(--vl-ink); background: transparent; border: 0; border-top: 1px solid var(--vl-line); text-align: left; }
+.life-panel__task:hover { background: var(--vl-raised); }
+.life-panel__task strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.life-panel__task small { display: block; color: var(--vl-muted); font-size: 10px; margin-top: 8px; line-height: 1.7; }
+.life-panel__task > span:last-child { color: var(--vl-blue); font-size: 11px; text-align: right; flex: 0 0 auto; }
+.life-panel__error, .life-panel__notice { padding: 12px; border-radius: 6px; margin: 16px 0; font-size: 12px; line-height: 1.7; }
+.life-panel__error { color: #ffd1d5; background: #422735; border: 1px solid #90515d; }
+.life-panel__error button { color: inherit; background: transparent; border: 0; border-bottom: 1px solid; margin-left: 12px; }
+.life-panel__notice { color: var(--vl-blue); background: var(--vl-raised); border: 1px solid var(--vl-line); }
+.life-panel > .action-card { margin-top: 20px; }
+.life-panel__authorization { padding: 12px 16px; }
+.life-panel__authorization dl { margin: 0; }
+.life-panel__authorization dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 8px 0; border-bottom: 1px solid #51494d; font-size: 12px; }
+.life-panel__authorization dt { color: #c2bcc0; }
+.life-panel__authorization dd { margin: 0; color: #f5e9dc; overflow-wrap: anywhere; }
+.life-panel__authorization p, .life-panel__authorization li { font-size: 11px; color: #c2bcc0; line-height: 1.7; overflow-wrap: anywhere; }
+.life-panel__authorization ul { padding-left: 20px; }
+.life-panel__dialog { width: min(700px, calc(100vw - 32px)); }
+.life-panel__dialog dl small { display: block; margin-top: 4px; color: var(--vl-muted); font-size: 10px; }
+.life-panel__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.life-panel__metrics span { display: block; color: var(--vl-muted); font-size: 11px; }
+.life-panel__metrics strong { display: block; font-size: 18px; margin-top: 6px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.life-panel__orders { margin: 20px 0; }
+.life-panel__orders h3 { font-size: 14px; margin: 0 0 12px; }
+.life-panel__orders article { padding: 16px 0; border-top: 1px solid var(--vl-line); }
+.life-panel__orders article > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 12px; }
+.life-panel__orders strong { font-size: 13px; }
+.life-panel__orders span { color: var(--vl-blue); font-size: 11px; }
+.life-panel__orders p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 8px 0; }
+.life-panel__orders small { display: block; color: var(--vl-muted); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.life-panel__orders button { margin-top: 12px; }
+@media (max-width: 600px) {
+  .life-panel > header { gap: 8px; }
+  .life-panel__section { padding: 16px 12px; }
+  .life-panel__form label { flex-basis: 100%; }
+  .life-panel__form > button { flex: 1 1 100%; }
+  .life-panel__task { gap: 8px; }
+  .life-panel__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

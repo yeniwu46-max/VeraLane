@@ -6,6 +6,7 @@ import json
 import hashlib
 import re
 import secrets
+import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -17,6 +18,7 @@ from .agent import Intent, extract_amount_text, parse_intent
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
 from .clock import business_date, business_now
 from .schedule_time import instruction_text, parse_schedule
+from .execution_controls import available_cents, debit, require_verified
 
 
 def money(cents: int) -> str:
@@ -72,7 +74,9 @@ def overview() -> dict[str, Any]:
         return {
             "demo_date": business_date(conn),
             "demo_now": business_now(conn).isoformat(timespec="seconds"),
-            "account": {"label": account["label"], "balance_yuan": money(account["balance_cents"])},
+            "account": {"label": account["label"], "balance_yuan": money(account["balance_cents"]),
+                        "available_yuan": money(available_cents(conn)),
+                        "reserved_yuan": money(account["balance_cents"] - available_cents(conn))},
             "transactions": [
                 {**dict(row), "amount_yuan": money(row["amount_cents"])} for row in transactions
             ],
@@ -106,6 +110,22 @@ def reply(message: str, session_id: str, mode: str, **extra: Any) -> dict[str, A
 
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
+    if re.search(r'少花|省下|节省|省钱|减少.{0,6}支出', request_text):
+        from .plans import preview_plan
+        plan_reply = preview_plan(session_id, request_text)
+        return reply(plan_reply['message'], session_id, 'offline', workflow={'view':'tasks','section':'plans','message':request_text,'plan_id':plan_reply.get('plan',{}).get('id')})
+    workflow = None
+    if '生日' in request_text:
+        workflow = ('tasks', 'life', '生日计划会先核对日期、预算、收货人和商品，再授权预留及模拟下单。')
+    elif re.search(r'锁卡|解锁|挂失|卡找不到|卡片|银行卡|申请.{0,4}卡|提额', request_text):
+        workflow = ('cards', None, '请在卡片页核对具体卡号尾号和操作影响；当前需求已带入。')
+    elif re.search(r'理财|申购|赎回|风险测评|产品对比|有笔钱暂时不用', request_text):
+        workflow = ('investments', None, '理财助手会核对测评、期限、风险与流动性条件；当前需求已带入，不会自动买入。')
+    if workflow:
+        with db_session() as conn:
+            set_context(conn,session_id,{})
+            audit(conn,session_id,'workflow_routed',{'view':workflow[0],'section':workflow[1]})
+        return reply(workflow[2],session_id,'offline',workflow={'view':workflow[0],'section':workflow[1],'message':request_text})
     if request_text.strip(" ，。！!？?") in ("取消", "算了", "不转了", "取消预约", "取消转账", "取消这笔", "取消这笔预约"):
         with db_session() as conn:
             set_context(conn, session_id, {})
@@ -121,6 +141,15 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
     subscription_names = [row["merchant"] for row in subscriptions]
     parsed = await parse_intent(message, contact_names, subscription_names)
     intent = parsed.intent
+    if intent.action in ('transfer', 'unknown'):
+        from .aliases import resolve_transfer_alias
+        with db_session() as conn:
+            resolved = resolve_transfer_alias(conn, session_id, message)
+        if resolved:
+            if resolved['status'] != 'resolved':
+                return reply('称呼对应的联系人需要重新核对，请在智能转账页查看已保存别名。', session_id, 'offline')
+            if intent.action == 'transfer' or context.get('pending_transfer'):
+                intent = intent.model_copy(update={'action':'transfer', 'recipient':resolved['recipient'], 'phone':resolved['phone']})
     pending = context.get("pending_transfer") or {}
     schedule = None
     if context.get("pending_transfer") and intent.action in ("unknown", "transfer"):
@@ -144,11 +173,11 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
             intent = Intent(action="subscription_cancel", subscription=matched)
 
     with db_session() as conn:
-        audit(conn, session_id, "intent_parsed", {"action": intent.action, "mode": parsed.mode})
+        audit(conn, session_id, "intent_parsed", {"action": intent.action, "mode": parsed.mode, "model_call": parsed.metadata})
         if parsed.usage:
             conn.execute(
                 "INSERT INTO model_usage (at, model, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?)",
-                (utc_now(), "deepseek-flash", parsed.usage["prompt_tokens"], parsed.usage["completion_tokens"]),
+                (utc_now(), os.getenv('DEEPSEEK_MODEL', 'deepseek-flash'), parsed.usage["prompt_tokens"], parsed.usage["completion_tokens"]),
             )
         if intent.action == "aa_split" or (context.get("pending_aa") and intent.action == "unknown"):
             from .aa import interpret_message
@@ -156,9 +185,16 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
         if intent.action == "balance_query":
             account = conn.execute("SELECT balance_cents FROM accounts WHERE id = ?", (ACCOUNT_ID,)).fetchone()
             set_context(conn, session_id, {})
-            return reply(f"日常账户余额为 ¥{money(account['balance_cents'])}。数据来自模拟账户。", session_id, parsed.mode)
+            return reply(f"日常账户余额为 ¥{money(account['balance_cents'])}，可用余额 ¥{money(available_cents(conn))}，预留 ¥{money(account['balance_cents'] - available_cents(conn))}。数据来自模拟账户。", session_id, parsed.mode)
         if intent.action == "bill_summary":
             set_context(conn, session_id, {})
+            if re.search(r"餐饮|交通|日用|居住|超过|低于|小于|为什么|变化|增加|减少|异常|重复|上月|商户", request_text):
+                from .insights import build_report, parse_question
+                try:
+                    insight = build_report(conn, parse_question(conn, request_text))
+                    return reply(insight['summary'], session_id, 'offline', insight_query=request_text)
+                except ValueError as exc:
+                    return reply(str(exc), session_id, 'offline', insight_query=request_text)
             return bill_summary(conn, session_id, parsed.mode, intent.period or message)
         if intent.action == "subscription_list":
             set_context(conn, session_id, {})
@@ -251,6 +287,8 @@ def bill_summary(conn: sqlite3.Connection, session_id: str, mode: str, period: s
         (ACCOUNT_ID, first.isoformat(), end.isoformat()),
     ).fetchall()
     categories: dict[str, int] = {}
+    from .bill_preferences import apply_effective_categories
+    rows = apply_effective_categories(conn, rows)
     for row in rows:
         categories[row["category"]] = categories.get(row["category"], 0) + row["amount_cents"]
     total = sum(categories.values())
@@ -279,6 +317,9 @@ def bill_summary(conn: sqlite3.Connection, session_id: str, mode: str, period: s
             "transactions": [
                 {"id": row["id"], "posted_on": row["posted_on"], "category": row["category"],
                  "counterparty": row["counterparty"], "amount_yuan": money(row["amount_cents"]),
+                 "original_category": row.get('original_category', row['category']),
+                 "classification_reason": row.get('classification_reason'),
+                 "classification_version": row.get('classification_version'),
                  "note": row["note"]}
                 for row in rows
             ],
@@ -388,10 +429,9 @@ def prepare_transfer(
             pending_data["schedule"] = schedule
             set_context(conn, session_id, {"pending_transfer": pending_data})
             return reply(schedule["error"], session_id, mode)
-    account = conn.execute("SELECT balance_cents FROM accounts WHERE id = ?", (ACCOUNT_ID,)).fetchone()
-    if schedule is None and amount > account["balance_cents"]:
+    if schedule is None and amount > available_cents(conn):
         set_context(conn, session_id, {})
-        return reply("余额不足，未创建转账。", session_id, mode)
+        return reply("可用余额不足，未创建转账；已预留资金不能用于其他支出。", session_id, mode)
     sent_today = conn.execute(
         "SELECT COALESCE(SUM(amount_cents), 0) FROM transactions "
         "WHERE account_id = ? AND posted_on = ? AND category = '转账' AND direction = 'out'",
@@ -407,13 +447,18 @@ def prepare_transfer(
         "note": (intent.note or "转账")[:100],
         "contact_fingerprint": contact_fingerprint(contact),
     }
+    from .aliases import similar_transfers
+    similar = similar_transfers(conn, contact['id'], amount)
+    if similar:
+        payload['similar_transfers'] = similar
     if schedule is not None:
         payload.update(execute_at=schedule["execute_at"], timezone="Asia/Shanghai",
                        window_expires_at=(datetime.fromisoformat(schedule["execute_at"]) + timedelta(minutes=10)).isoformat(timespec="seconds"))
     action = create_action(conn, session_id, "scheduled_transfer" if schedule is not None else "transfer", tier, payload)
     set_context(conn, session_id, {})
     if tier == "red":
-        return reply("转账计划已生成。日累计金额超过 ¥1000，需强验证；当前原型不会直接执行。", session_id, mode, pending_action=action)
+        return reply("转账计划已生成。日累计金额超过 ¥1000，需独立模拟强验证。" +
+                     ("当前预约仅支持单笔不超过 ¥1000。" if schedule else "验证并确认后才会执行。"), session_id, mode, pending_action=action)
     if schedule is not None:
         return reply("请核对预约日期、收款人和金额。确认后到期自动检查并执行，不会提前冻结余额；超过执行时间 10 分钟则失效。",
                      session_id, mode, pending_action=action)
@@ -483,9 +528,12 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
             conn.commit()
             raise HTTPException(status_code=409, detail="确认已过期，请重新发起")
         if row["tier"] == "red":
-            audit(conn, session_id, "strong_verification_required", {"action_id": action_id})
-            conn.commit()
-            raise HTTPException(status_code=403, detail="该操作需要强验证；当前原型禁止直接执行")
+            try:
+                require_verified(conn, row)
+            except HTTPException:
+                audit(conn, session_id, "strong_verification_required", {"action_id": action_id})
+                conn.commit()
+                raise
         payload = json.loads(row["payload_json"])
         if row["type"] == "transfer":
             result = execute_transfer(conn, action_id, session_id, payload)
@@ -497,6 +545,33 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
             result = create_schedule(conn, action_id, session_id, payload)
         elif row["type"] == "subscription_cancel":
             result = execute_cancel(conn, action_id, session_id, payload)
+        elif row["type"] == "subscription_batch":
+            from .subscription_intelligence import execute_batch
+            result = execute_batch(conn, action_id, session_id, payload)
+        elif row["type"] == "spending_plan":
+            from .plans import execute_plan
+            result = execute_plan(conn, action_id, session_id, payload)
+        elif row["type"] in ("fund_reserve", "fund_release"):
+            from .execution_controls import execute_reserve, execute_release
+            result = (execute_reserve if row["type"] == "fund_reserve" else execute_release)(conn, action_id, session_id, payload)
+        elif row["type"] in ("investment_buy", "investment_redeem"):
+            from .investments import execute_buy, execute_redeem
+            result = (execute_buy if row["type"] == "investment_buy" else execute_redeem)(conn, action_id, session_id, payload)
+        elif row["type"] in ("card_update", "card_application", "card_payment"):
+            from .cards import execute_update, execute_application, execute_payment
+            result = {"card_update": execute_update, "card_application": execute_application, "card_payment": execute_payment}[row['type']](conn, action_id, session_id, payload)
+        elif row['type'] in ('birthday_task', 'birthday_cancel', 'birthday_order_cancel'):
+            from .life_tasks import execute_create, execute_cancel as cancel_life, execute_order_cancel
+            result = {'birthday_task': execute_create, 'birthday_cancel': cancel_life, 'birthday_order_cancel': execute_order_cancel}[row['type']](conn, action_id, session_id, payload)
+        elif row['type'] in ('alias_upsert', 'alias_delete'):
+            from .aliases import execute_upsert, execute_delete
+            result = (execute_upsert if row['type']=='alias_upsert' else execute_delete)(conn, action_id, session_id, payload)
+        elif row['type'] in ('recurring_transfer', 'batch_transfer', 'recurring_cancel'):
+            from .recurring import execute_recurring, execute_batch as batch_transfer, execute_cancel as cancel_recurring
+            result = {'recurring_transfer':execute_recurring,'batch_transfer':batch_transfer,'recurring_cancel':cancel_recurring}[row['type']](conn,action_id,session_id,payload)
+        elif row['type'] in ('bill_classification', 'bill_budget_upsert', 'bill_budget_delete'):
+            from .bill_preferences import execute_classification, execute_budget, execute_delete as delete_budget
+            result = {'bill_classification':execute_classification,'bill_budget_upsert':execute_budget,'bill_budget_delete':delete_budget}[row['type']](conn,action_id,session_id,payload)
         else:
             raise HTTPException(status_code=400, detail="不支持的操作类型")
         conn.execute(
@@ -514,8 +589,13 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
 
 
 def execute_transfer(
-    conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict[str, Any]
+    conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict[str, Any],
+    *, authorization_id: str | None = None,
 ) -> dict[str, Any]:
+    parent_tier = None
+    if authorization_id:
+        from .recurring import validate_transfer_authorization
+        parent_tier = validate_transfer_authorization(conn, authorization_id, action_id, session_id, payload)
     contact = conn.execute(
         "SELECT * FROM contacts WHERE id = ? AND user_id = ? AND verified = 1",
         (payload["contact_id"], USER_ID),
@@ -531,13 +611,12 @@ def execute_transfer(
         (ACCOUNT_ID, business_date(conn)),
     ).fetchone()[0]
     if sent_today + amount > 100_000:
-        raise HTTPException(status_code=403, detail="日累计超过 ¥1000，需要强验证，未转账")
-    changed = conn.execute(
-        "UPDATE accounts SET balance_cents = balance_cents - ? WHERE id = ? AND balance_cents >= ?",
-        (amount, ACCOUNT_ID, amount),
-    ).rowcount
-    if changed != 1:
-        raise HTTPException(status_code=409, detail="余额不足，未转账")
+        if parent_tier != 'red':
+            action = conn.execute("SELECT * FROM actions WHERE id=? AND session_id=?", (action_id, session_id)).fetchone()
+            if action is None or action['tier'] != 'red' or action['type'] != 'transfer':
+                raise HTTPException(status_code=403, detail="日累计超过 ¥1000，请重新生成计划并完成强验证，未转账")
+            require_verified(conn, action)
+    debit(conn, amount)
     tx_id = f"transfer-{action_id}"
     conn.execute(
         "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, "
@@ -551,6 +630,9 @@ def execute_transfer(
 def execute_cancel(
     conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    sub = conn.execute("SELECT * FROM subscriptions WHERE id=? AND user_id=?", (payload['subscription_id'], USER_ID)).fetchone()
+    if sub is None or sub['merchant'] != payload['merchant'] or money(sub['amount_cents']) != payload['amount_yuan'] or sub['renewal_on'] != payload['renewal_on']:
+        raise HTTPException(409, "代扣协议内容已变化，请重新核对")
     changed = conn.execute(
         "UPDATE subscriptions SET status = 'cancelled' "
         "WHERE id = ? AND user_id = ? AND status = 'active'",
@@ -558,5 +640,7 @@ def execute_cancel(
     ).rowcount
     if changed != 1:
         raise HTTPException(status_code=409, detail="代扣协议状态已变化，未重复取消")
+    conn.execute("INSERT OR REPLACE INTO subscription_closures VALUES (?, ?)",
+                 (payload['subscription_id'], business_now(conn).isoformat(timespec='seconds')))
     return {"status": "completed", "message": f"已取消 {payload['merchant']} 的模拟代扣协议。",
             "subscription_id": payload["subscription_id"], "action_id": action_id}

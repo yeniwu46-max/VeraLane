@@ -124,7 +124,8 @@ def run_due_transfers() -> int:
     conn = connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        count = _execute_due(conn)
+        from .jobs import run_due
+        count = run_due(conn)
         conn.commit()
         return count
     except Exception:
@@ -135,26 +136,6 @@ def run_due_transfers() -> int:
 
 
 def advance_to_next(session_id: str) -> dict:
-    if os.environ.get("VERALANE_DEMO_CONTROLS", "1") != "1":
-        raise HTTPException(403, "演示时间控制已关闭")
-    conn = connect()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        own = conn.execute("SELECT 1 FROM scheduled_transfers WHERE session_id = ? AND status = 'pending'",
-                           (session_id,)).fetchone()
-        if own is None:
-            raise HTTPException(409, "当前会话没有待执行预约")
-        # Pick the earliest across the shared demo account, so no other task is skipped.
-        next_time = conn.execute("SELECT MIN(execute_at) FROM scheduled_transfers WHERE status = 'pending'").fetchone()[0]
-        old_time = business_now(conn).isoformat(timespec="seconds")
-        new_time = max(old_time, next_time)
-        conn.execute("UPDATE demo_clock SET now = ? WHERE id = 1", (new_time,))
-        audit(conn, session_id, "demo_clock_advanced", {"from": old_time, "to": new_time})
-        _execute_due(conn)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    from .jobs import advance_events
+    advance_events(session_id)
     return list_schedules(session_id)

@@ -1,0 +1,88 @@
+.plans-panel { color: var(--vl-ink); min-width: 0; padding-top: 16px; }
+.plans-panel > header h1 { font-size: 24px; margin: 0 0 8px; }
+.plans-panel > header p { color: var(--vl-muted); font-size: 12px; margin: 0 0 20px; line-height: 1.7; }
+.plans-panel button, .plans-panel input { font: inherit; }
+.plans-panel button, .plans-panel summary { cursor: pointer; }
+.plans-panel button:focus-visible, .plans-panel input:focus-visible, .plans-panel summary:focus-visible { outline: 2px solid var(--vl-blue); outline-offset: 3px; }
+.plans-panel button:disabled { opacity: .5; cursor: default; }
+.plans-panel__primary, .plans-panel__quiet { border-radius: 5px; padding: 8px 12px; min-height: 36px; font-size: 12px !important; }
+.plans-panel__primary { color: #fff; background: var(--vl-blue-strong); border: 0; }
+.plans-panel__quiet { color: var(--vl-blue); background: transparent; border: 1px solid var(--vl-line); }
+.plans-panel__quiet:not(:disabled):hover { background: var(--vl-raised); }
+.plans-panel__form { padding: 16px; border: 1px solid var(--vl-line); background: var(--vl-panel); border-radius: 8px; }
+.plans-panel__form > label { display: block; font-size: 12px; color: var(--vl-muted); margin-bottom: 8px; }
+.plans-panel__form > div { display: flex; gap: 8px; }
+.plans-panel__form input { flex: 1; width: 0; min-width: 0; padding: 10px 12px; border: 1px solid var(--vl-line); background: var(--vl-canvas); color: var(--vl-ink); border-radius: 5px; font-size: 13px; }
+.plans-panel__form input::placeholder { color: var(--vl-muted); }
+.plans-panel__form > small { display: block; color: var(--vl-muted); font-size: 10px; margin-top: 12px; }
+.plans-panel__history { margin-top: 20px; font-size: 13px; }
+.plans-panel__history > summary > span { color: var(--vl-muted); margin-left: 8px; }
+.plans-panel__history > button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 4px; margin-top: 8px; color: var(--vl-ink); background: transparent; border: 0; border-bottom: 1px solid var(--vl-line); text-align: left; }
+.plans-panel__history > button[aria-pressed='true'] { background: var(--vl-raised); }
+.plans-panel__history strong { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.plans-panel__history small { display: block; color: var(--vl-muted); font-size: 10px; margin-top: 6px; }
+.plans-panel__history b { font-size: 11px; color: var(--vl-blue); white-space: nowrap; }
+.plans-panel__workspace { margin-top: 20px; padding: 20px; border: 1px solid var(--vl-line); background: var(--vl-panel); border-radius: 8px; }
+.plans-panel__detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.plans-panel__detail-head h2 { margin: 0; font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
+.plans-panel__detail-head p { color: var(--vl-muted); font-size: 11px; margin: 6px 0 0; }
+.plans-panel__status { border: 1px solid var(--vl-line); border-radius: 4px; color: var(--vl-blue); font-size: 11px; padding: 4px 8px; flex: 0 0 auto; }
+.plans-panel__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 20px 0 12px; }
+.plans-panel__metrics span { display: block; font-size: 11px; color: var(--vl-muted); line-height: 1.7; }
+.plans-panel__metrics strong { display: block; font-size: 22px; margin-top: 6px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.plans-panel__muted { color: var(--vl-muted); font-size: 11px; line-height: 1.7; }
+.plans-panel__steps { padding: 0; margin: 20px 0; list-style: none; }
+.plans-panel__steps > li { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-top: 1px solid var(--vl-line); }
+.plans-panel__steps > li > span { font-size: 11px; color: var(--vl-blue); background: var(--vl-raised); border-radius: 4px; padding: 6px; font-variant-numeric: tabular-nums; }
+.plans-panel__steps > li > div { min-width: 0; flex: 1; }
+.plans-panel__steps > li > div > div { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.plans-panel__steps h3 { font-size: 13px; margin: 0; }
+.plans-panel__steps small { color: var(--vl-muted); font-size: 10px; }
+.plans-panel__steps p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 8px 0; }
+.plans-panel__options { border-top: 1px solid var(--vl-line); padding-top: 16px; }
+.plans-panel__options > h3, .plans-panel__results h3 { font-size: 14px; margin: 0 0 12px; }
+.plans-panel__options article { padding: 12px 0; border-bottom: 1px solid var(--vl-line); }
+.plans-panel__options article > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.plans-panel__options label { display: flex; gap: 12px; align-items: center; font-size: 13px; cursor: pointer; }
+.plans-panel__options input { accent-color: var(--vl-blue); width: 17px; height: 17px; margin: 0; flex: 0 0 auto; }
+.plans-panel__options b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.plans-panel__options p { color: var(--vl-muted); font-size: 11px; margin: 8px 0; line-height: 1.7; }
+.plans-panel__options p > span { display: block; color: var(--vl-gold); }
+.plans-panel__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.plans-panel__workspace > .action-card { margin-top: 20px; }
+.plans-panel__authorization { padding: 12px 16px; font-size: 12px; line-height: 1.7; }
+.plans-panel__authorization p { margin: 4px 0 12px; color: #dfd4c7; }
+.plans-panel__authorization ul { padding-left: 20px; margin: 0 0 12px; }
+.plans-panel__results { margin-top: 20px; border-top: 1px solid var(--vl-line); padding-top: 16px; }
+.plans-panel__results > p { font-size: 12px; line-height: 1.8; }
+.plans-panel__results article { padding: 12px 0; border-bottom: 1px solid var(--vl-line); }
+.plans-panel__results article > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.plans-panel__results strong { font-size: 12px; }
+.plans-panel__results span { color: var(--vl-blue); font-size: 11px; }
+.plans-panel__results article > p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 8px 0 0; }
+.plans-panel__results > small { display: block; color: var(--vl-muted); font-size: 10px; margin-top: 12px; overflow-wrap: anywhere; }
+.plans-panel__foot { color: var(--vl-muted); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; margin: 20px 0 0; }
+.plans-panel__error, .plans-panel__notice { padding: 12px; border-radius: 6px; margin: 16px 0; font-size: 12px; line-height: 1.7; }
+.plans-panel__error { background: #422735; color: #ffd1d5; border: 1px solid #90515d; }
+.plans-panel__error button { color: inherit; background: transparent; border: 0; border-bottom: 1px solid; margin-left: 12px; }
+.plans-panel__notice { background: var(--vl-raised); color: var(--vl-blue); border: 1px solid var(--vl-line); }
+.plans-panel__dialog { width: min(600px, calc(100vw - 32px)); }
+.plans-panel__evidence { padding: 0; margin: 16px 0 0; list-style: none; max-height: 55vh; overflow-y: auto; }
+.plans-panel__evidence li { padding: 12px 0; border-top: 1px solid var(--vl-line); }
+.plans-panel__evidence li > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.plans-panel__evidence strong { font-size: 12px; }
+.plans-panel__evidence b { color: var(--vl-blue); font-size: 14px; }
+.plans-panel__evidence p { color: var(--vl-muted); font-size: 11px; line-height: 1.7; margin: 8px 0; }
+.plans-panel__evidence small { color: var(--vl-muted); font-size: 10px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .plans-panel__form, .plans-panel__workspace { padding: 16px 12px; }
+  .plans-panel__metrics { gap: 8px; }
+  .plans-panel__metrics strong { font-size: 17px; }
+  .plans-panel__metrics span { font-size: 10px; }
+  .plans-panel__detail-head { gap: 8px; }
+  .plans-panel__form > div { flex-wrap: wrap; }
+  .plans-panel__form input { flex-basis: 100%; }
+  .plans-panel__form button { width: 100%; }
+  .plans-panel__history > button { gap: 8px; }
+  .plans-panel__actions > button { flex: 1 1 auto; }
+}
