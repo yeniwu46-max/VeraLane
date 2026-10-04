@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
@@ -177,7 +178,8 @@ def build_preview(conn: sqlite3.Connection, data: dict) -> dict:
     return {"total_yuan": money(total), "total_cents": total,
             "self_yuan": money(amounts[0]), "receivable_yuan": money(total - amounts[0]),
             "note": (data.get("note") or "AA 分摊")[:100], "source_transaction": source,
-            "source_type": "ledger" if source else "user", "participants": participants}
+            "source_type": "ledger" if source else "user", "participants": participants,
+            "reminder_on": (date.fromisoformat(business_date(conn)) + timedelta(days=3)).isoformat()}
 
 
 def preview(data: dict) -> dict:
@@ -206,16 +208,18 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
         raise HTTPException(409, "参与人信息已变化，请重新核对分摊计划")
     if payload["source_transaction"] != fresh["source_transaction"]:
         raise HTTPException(409, "原始支出信息已变化，请重新生成分摊计划")
+    if payload["reminder_on"] != fresh["reminder_on"]:
+        raise HTTPException(409, "演示日期已变化，请重新核对站内提醒日期")
     if (payload["total_cents"] != fresh["total_cents"] or payload["self_yuan"] != fresh["self_yuan"]
             or payload["receivable_yuan"] != fresh["receivable_yuan"]
             or any(a["amount_cents"] != b["amount_cents"] for a, b in zip(people, fresh["participants"]))):
         raise HTTPException(409, "分摊金额与授权不一致")
     timestamp = utc_now()
     state = "completed" if share_cents(payload["receivable_yuan"]) == 0 else "pending"
-    conn.execute("INSERT INTO aa_collections (id, session_id, account_id, source_transaction_id, payload_json, status, created_at) "
-                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    conn.execute("INSERT INTO aa_collections (id, session_id, account_id, source_transaction_id, payload_json, status, created_at, reminder_on) "
+                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                  (action_id, session_id, ACCOUNT_ID, data["source_transaction_id"],
-                  json.dumps(payload, ensure_ascii=False), state, timestamp))
+                  json.dumps(payload, ensure_ascii=False), state, timestamp, payload["reminder_on"]))
     for person in people:
         if person["id"] != "self" and person["amount_cents"] > 0:
             conn.execute("INSERT INTO aa_requests (id, collection_id, contact_id, amount_cents, status) VALUES (?, ?, ?, ?, 'pending')",
@@ -223,6 +227,24 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
     audit(conn, session_id, "aa_collection_created", {"collection_id": action_id, "receivable_yuan": payload["receivable_yuan"]})
     return {"status": "completed", "collection_id": action_id, "action_id": action_id,
             "message": f"AA 收款单已建立，应收 ¥{payload['receivable_yuan']}。建单未改变账户余额；可在 AA 收款中查看进度。"}
+
+
+def refresh_aa_reminders(conn: sqlite3.Connection) -> int:
+    today = business_date(conn)
+    due = conn.execute("SELECT * FROM aa_collections WHERE status IN ('pending', 'partial') "
+                       "AND reminder_on IS NOT NULL AND reminder_on <= ? ORDER BY reminder_on, id", (today,)).fetchall()
+    created = 0
+    for row in due:
+        reminder_id = f"aa:{row['id']}:{row['reminder_on']}"
+        payload = json.loads(row["payload_json"])
+        note = payload.get("note") or "AA 收款"
+        cursor = conn.execute("INSERT OR IGNORE INTO reminders(id,account_id,kind,title,body,source_id,due_on,created_at) "
+                              "VALUES(?,?,'aa_collection',?,?,?, ?,?)",
+                              (reminder_id, row["account_id"], f"{note}仍有未收款项",
+                               "收款单仍有未收金额。请打开 AA 查看实时余额；这是站内提醒，不发送消息。",
+                               row["id"], row["reminder_on"], business_now(conn).isoformat(timespec="seconds")))
+        created += cursor.rowcount
+    return created
 
 
 def _owned(conn: sqlite3.Connection, collection_id: str, session_id: str) -> sqlite3.Row:

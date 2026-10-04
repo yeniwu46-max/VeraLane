@@ -17,6 +17,11 @@ def pending_events(conn):
         events.append({'id':r['id'],'session_id':r['session_id'],'at':r['delivery_at'],'label':'模拟生日配送'})
     for r in conn.execute("SELECT o.id,p.session_id,o.execute_at FROM recurring_occurrences o JOIN recurring_plans p ON p.id=o.plan_id WHERE o.status='pending' AND p.status='active'"):
         events.append({'id':r['id'],'session_id':r['session_id'],'at':r['execute_at'],'label':'周期转账'})
+    for r in conn.execute("SELECT c.id,c.session_id,c.reminder_on FROM aa_collections c "
+                          "WHERE c.status IN ('pending','partial') AND c.reminder_on IS NOT NULL "
+                          "AND NOT EXISTS (SELECT 1 FROM reminders m WHERE m.id='aa:' || c.id || ':' || c.reminder_on)"):
+        events.append({'id':f"aa-reminder:{r['id']}",'session_id':r['session_id'],
+                       'at':r['reminder_on']+'T09:00:00+08:00','label':'AA 未收款站内提醒'})
     return sorted(events,key=lambda x:(x['at'],x['id']))
 
 
@@ -25,7 +30,8 @@ def run_due(conn):
     from .investments import run_due_settlements
     from .life_tasks import run_due_tasks
     from .recurring import run_due_recurring
-    return _execute_due(conn)+run_due_settlements(conn)+run_due_tasks(conn)+run_due_recurring(conn)
+    from .aa import refresh_aa_reminders
+    return _execute_due(conn)+run_due_settlements(conn)+run_due_tasks(conn)+run_due_recurring(conn)+refresh_aa_reminders(conn)
 
 
 def events_snapshot(sid):

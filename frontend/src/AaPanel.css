@@ -2,6 +2,13 @@
 .transfer-tabs button { min-height: 40px; padding: 8px 20px; border: 0; border-radius: 5px; background: transparent; color: var(--vl-muted); font-size: 13px; cursor: pointer; }
 .transfer-tabs button[aria-pressed="true"] { color: #fff; background: #2d5180; font-weight: 700; }
 .aa-workspace { display: grid; gap: 20px; min-width: 0; }
+.aa-reminders { display: grid; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--vl-line); }
+.aa-reminders h3 { margin: 0; color: var(--vl-ink); font-size: 13px; }
+.aa-reminders h3 span { margin-left: 8px; color: var(--vl-muted); font-size: 11px; font-weight: 400; }
+.aa-reminder { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--vl-line); border-radius: 6px; background: #102137; }
+.aa-reminder strong { color: var(--vl-ink); font-size: 12px; }
+.aa-reminder p { margin: 5px 0 0; color: var(--vl-muted); font-size: 11px; line-height: 1.6; }
+.aa-reminder__actions { display: flex; flex-shrink: 0; gap: 8px; }
 .aa-editor, .aa-collections { min-width: 0; padding: 24px; border: 1px solid var(--vl-line); border-radius: 10px; background: var(--vl-panel); }
 .aa-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .aa-section-head h2, .aa-section-head h3 { margin: 0; color: var(--vl-ink); font-size: 17px; line-height: 1.5; }
@@ -141,6 +148,8 @@
   .aa-collection-row .aa-status { grid-column: 1; justify-self: start; }
   .aa-arrow { grid-column: 2; justify-self: end; }
   .aa-share-row { gap: 12px; }
+  .aa-reminder { align-items: flex-start; flex-direction: column; }
+  .aa-reminder__actions { flex-wrap: wrap; }
   .aa-money-field input { width: 88px; }
   .aa-confirm-card { padding: 16px; }
   .aa-confirm-totals dd { font-size: 17px; }

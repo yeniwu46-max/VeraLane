@@ -34,7 +34,7 @@ export function AaAllocation({ preview, shares, onChange, onEqualize, onPrepare,
       <dl className="aa-confirm-totals"><div><dt>总额</dt><dd>{aaMoney(action.details.total_yuan)}</dd></div><div><dt>本人承担</dt><dd>{aaMoney(action.details.self_yuan)}</dd></div><div><dt>向他人收取</dt><dd>{aaMoney(action.details.receivable_yuan)}</dd></div></dl>
       <p>{action.details.note} · {action.details.source_transaction ? `引用 ${action.details.source_transaction.counterparty} 的原始支出` : '用户填写的垫付金额'}</p>
       <label className="review-check"><input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => onReviewed(event.target.checked)} /><span>我已核对参与人、每人金额和用途，同意建立收款单。</span></label>
-      <p className="aa-caption">确认不会扣款、增加余额或向联系人发送消息。模拟付款到账后才计入余额；确认单 10 分钟内有效。</p>
+      <p className="aa-caption">确认不会扣款或增加余额。若仍有未收款项，将于 {action.details.reminder_on} 生成一次站内提醒，不发送消息。模拟付款到账后才计入余额；确认单 10 分钟内有效。</p>
       <button type="button" className="confirm-button" disabled={busy || !reviewed || action.tier === 'red'} onClick={onConfirm}>{busy ? '正在处理…' : `确认建单 · 应收 ${aaMoney(action.details.receivable_yuan)}`}</button>
     </div>}
   </section>

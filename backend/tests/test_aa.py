@@ -577,3 +577,75 @@ def test_payment_rejects_changed_authorized_snapshot_or_request_binding(client, 
     assert ledger() == before
     with db.db_session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM aa_payment_events").fetchone()[0] == 0
+
+
+def test_aa_collection_reminder_uses_demo_clock_deduplicates_and_tracks_live_status(client):
+    action = prepare(client)
+    assert action["details"]["reminder_on"] == "2026-10-03"
+    created = confirm(client, action).json()
+    collection = get_collection(client, created["collection_id"])
+    request = requests(collection)[0]
+
+    events = client.get("/api/demo/events", params={"session_id": SESSION}).json()
+    aa_event = next(event for event in events["events"] if event["label"] == "AA 未收款站内提醒")
+    assert aa_event["at"] == "2026-10-03T09:00:00+08:00"
+    assert not any(item["kind"] == "aa_collection" for item in client.get(
+        "/api/reminders", params={"session_id": SESSION}).json()["items"])
+
+    advanced = client.post("/api/demo/clock/advance-next", json={"session_id": SESSION})
+    assert advanced.status_code == 200, advanced.text
+    reminders = client.get("/api/reminders", params={"session_id": SESSION}).json()["items"]
+    reminder = next(item for item in reminders if item["kind"] == "aa_collection")
+    assert reminder["due_on"] == "2026-10-03"
+    assert reminder["source_status"] == "pending"
+    assert "不发送消息" in reminder["body"]
+    assert client.get("/api/demo/events", params={"session_id": SESSION}).json()["events"] == []
+
+    # Repeated refreshes keep one reminder; it continues to reflect current collection state.
+    refreshed = client.get("/api/reminders", params={"session_id": SESSION}).json()["items"]
+    assert [item["id"] for item in refreshed].count(reminder["id"]) == 1
+    response = client.post(f"/api/aa/requests/{request['request_id']}/installments", json={
+        "session_id": SESSION, "amount_yuan": "10.00", "idempotency_key": "reminder-partial-1",
+    })
+    assert response.status_code == 200, response.text
+    live = next(item for item in client.get("/api/reminders", params={"session_id": SESSION}).json()["items"] if item["id"] == reminder["id"])
+    assert live["source_status"] == "partial"
+
+    assert client.post(f"/api/reminders/{reminder['id']}/read", json={"session_id": SESSION}).status_code == 200
+    read = next(item for item in client.get("/api/reminders", params={"session_id": SESSION}).json()["items"] if item["id"] == reminder["id"])
+    assert read["read_at"]
+
+
+def test_aa_reminder_is_not_scheduled_or_created_after_full_payment(client):
+    _, collection = authorize(client)
+    requests_to_pay = requests(collection)
+    for request in requests_to_pay:
+        result = payment(client, request)
+        assert result.status_code == 200, result.text
+    assert not any(event["label"] == "AA 未收款站内提醒" for event in client.get(
+        "/api/demo/events", params={"session_id": SESSION}).json()["events"])
+    client.post("/api/demo/clock/advance-next", json={"session_id": SESSION})
+    assert not any(item["kind"] == "aa_collection" for item in client.get(
+        "/api/reminders", params={"session_id": SESSION}).json()["items"])
+
+
+def test_legacy_open_collection_gets_a_reminder_date_during_schema_upgrade(client):
+    _, collection = authorize(client)
+    with db.db_session() as conn:
+        conn.execute("UPDATE aa_collections SET reminder_on=NULL WHERE id=?", (collection["id"],))
+
+    db.init_db()
+    with db.db_session() as conn:
+        reminder_on = conn.execute("SELECT reminder_on FROM aa_collections WHERE id=?", (collection["id"],)).fetchone()[0]
+    assert reminder_on == "2026-10-03"
+
+
+def test_prepared_aa_reminder_date_is_reauthorized_if_demo_clock_moves(client):
+    action = prepare(client)
+    with db.db_session() as conn:
+        conn.execute("UPDATE demo_clock SET now='2026-10-01T09:00:00+08:00' WHERE id=1")
+    response = confirm(client, action)
+    assert response.status_code == 409
+    assert "重新核对站内提醒日期" in response.json()["detail"]
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM aa_collections").fetchone()[0] == 0

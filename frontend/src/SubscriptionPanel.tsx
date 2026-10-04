@@ -4,7 +4,7 @@ import { formatBankTime } from './bankTime'
 import './SubscriptionPanel.css'
 
 type Diagnostic = { merchant: string; subscription_id: string | null; status: 'active' | 'cancelled' | 'candidate'; cycle: string; confidence: string; renewal_on: string | null; estimated_renewal: { from: string; to: string; overdue: boolean } | null; amount_yuan: string; price_change_yuan: string; price_increased: boolean; after_cancel_ids: string[]; limitations: string[]; evidence: BillTransaction[] }
-type Reminder = { id: string; title: string; body: string; due_on: string; source_status: 'active' | 'cancelled' | null; read_at: string | null; created_at: string }
+type Reminder = { id: string; kind: 'renewal' | 'aa_collection'; title: string; body: string; due_on: string; source_status: 'active' | 'cancelled' | 'pending' | 'partial' | 'completed' | 'closed' | null; read_at: string | null; created_at: string }
 type BatchItem = { subscription_id: string; merchant: string; amount_yuan: string; renewal_on: string; status?: 'completed' | 'failed'; message?: string }
 type BatchDetails = { items: BatchItem[]; period_start: string; period_end: string; expected_savings_yuan: string }
 type BatchAction = { id: string; type: 'subscription_batch'; tier: 'yellow'; expires_at: string; details: BatchDetails }
@@ -113,9 +113,14 @@ function SubscriptionPanelContent({ sessionId, onChanged }: SubscriptionPanelPro
         </article>)}
       </div>
       <div className="sub-manager__selection"><p>已选择 {selected.length} 项代扣<span>只处理你选中的协议。</span></p><button type="button" className="sub-manager__primary" disabled={busy || !selected.length} onClick={prepare}>{busy ? '正在处理…' : '预览取消计划'}</button></div>
-      <details className="sub-manager__reminders" open={data.reminders.items.some((item) => !item.read_at && item.source_status === 'active')}><summary>站内提醒 <span>{data.reminders.items.filter((item) => !item.read_at).length} 条未读</span></summary>
-        {!data.reminders.items.length && <p className="sub-manager__muted">当前没有需要提醒的续费。</p>}
-        {data.reminders.items.map((item) => <article key={item.id} className="sub-manager__reminder"><div><strong>{item.source_status === 'cancelled' ? '历史续费提醒 · 协议已取消' : item.source_status === 'active' ? item.title : '历史提醒 · 协议状态待核对'}</strong><p>{item.source_status === 'active' ? item.body : `原记录日期 ${item.due_on}。当前${item.source_status === 'cancelled' ? '银行代扣已取消' : '协议状态待核对'}，此提醒保留供查阅。`}</p><small>生成于 {formatBankTime(item.created_at)} · 演示时间{item.read_at && ' · 已读'}</small></div>{!item.read_at && <button type="button" className="sub-manager__quiet" disabled={busy} onClick={() => markRead(item.id)}>标为已读</button>}</article>)}
+      <details className="sub-manager__reminders" open={data.reminders.items.some((item) => !item.read_at && (item.source_status === 'active' || item.source_status === 'pending' || item.source_status === 'partial'))}><summary>站内提醒 <span>{data.reminders.items.filter((item) => !item.read_at).length} 条未读</span></summary>
+        {!data.reminders.items.length && <p className="sub-manager__muted">当前没有需要处理的提醒。</p>}
+        {data.reminders.items.map((item) => {
+          const actionable = item.kind === 'renewal' ? item.source_status === 'active' : item.source_status === 'pending' || item.source_status === 'partial'
+          const kindLabel = item.kind === 'aa_collection' ? 'AA 收款提醒' : '订阅续费提醒'
+          const historical = item.source_status === 'cancelled' ? '银行代扣已取消' : item.source_status === 'completed' ? 'AA 收款单已收齐' : item.source_status === 'closed' ? 'AA 收款单已关闭' : '来源状态待核对'
+          return <article key={item.id} className="sub-manager__reminder"><div><strong>{actionable ? item.title : `历史${kindLabel} · ${historical}`}</strong><p>{actionable ? item.body : `原提醒日期 ${item.due_on}。${historical}，此提醒保留供查阅。`}</p><small>{kindLabel} · 生成于 {formatBankTime(item.created_at)} · 演示时间{item.read_at && ' · 已读'}</small></div>{!item.read_at && <button type="button" className="sub-manager__quiet" disabled={busy} onClick={() => markRead(item.id)}>标为已读</button>}</article>
+        })}
       </details>
     </>}
     {error && <p className="sub-manager__error" role="alert">{error}</p>}

@@ -139,6 +139,7 @@ def init_db() -> None:
                 payload_json TEXT NOT NULL,
                 status TEXT NOT NULL CHECK (status IN ('pending', 'partial', 'completed', 'closed')),
                 created_at TEXT NOT NULL,
+                reminder_on TEXT,
                 closed_at TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS aa_one_source ON aa_collections(account_id, source_transaction_id)
@@ -169,6 +170,9 @@ def init_db() -> None:
             );
             """
         )
+        aa_columns = {row["name"] for row in conn.execute("PRAGMA table_info(aa_collections)")}
+        if "reminder_on" not in aa_columns:
+            conn.execute("ALTER TABLE aa_collections ADD COLUMN reminder_on TEXT")
         # executescript commits any open transaction; seed rows atomically.
         conn.execute("BEGIN")
         from .subscription_intelligence import init_schema as init_subscriptions
@@ -191,6 +195,8 @@ def init_db() -> None:
         init_bill_preferences(conn)
         conn.execute("INSERT OR IGNORE INTO demo_clock (id, now) VALUES (1, ?)",
                      (f"{DEMO_DATE}T09:00:00+08:00",))
+        conn.execute("UPDATE aa_collections SET reminder_on = date(substr((SELECT now FROM demo_clock WHERE id=1),1,10), '+3 day') "
+                     "WHERE reminder_on IS NULL AND status IN ('pending','partial')")
         if conn.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
             return
         seed_demo(conn)

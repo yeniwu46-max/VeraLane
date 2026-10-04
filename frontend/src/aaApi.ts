@@ -18,6 +18,7 @@ export type AaPreview = {
   note: string
   source_transaction: AaSource | null
   source_type: 'ledger' | 'user'
+  reminder_on: string
   participants: { id: string; name: string; phone_masked: string; amount_yuan: string; rounding_extra: boolean }[]
 }
 export type AaAction = { id: string; type: 'aa_collection'; tier: 'yellow' | 'red'; status: 'pending'; expires_at: string; details: AaPreview }
