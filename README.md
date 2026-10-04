@@ -76,7 +76,14 @@ npm run dev
 
 初始业务日期为 `2026-09-30 09:00 +08:00`。业务时钟不会随电脑时间自然流逝；在任务中心“资金预留与时钟”或预约面板显式推进。所有会话共用时钟，推进会处理全局最早到期事件；授权有效期仍按实际 UTC 计算。
 
-如需重新演示，先停止服务，备份数据并将 `VERALANE_DB_PATH` 指向一个新的文件。不要为了演示成功自动清空旧流水。扩展历史样本在 `backend/app/history_fixture.py`，只作为显式测试夹具，不自动混入现有演示余额。
+如需重新演示，先停止服务，备份数据并将 `VERALANE_DB_PATH` 指向一个新的文件。不要为了演示成功自动清空旧流水。默认账本只带近期流水；如需展示跨年账单趋势，可先停止服务并备份数据库，再显式追加八个月的 32 笔虚构历史流水：
+
+```powershell
+cd backend
+uv run --frozen --env-file ../.env python -m app.demo_history --database ..\data\veralane.sqlite3 --confirm-fictional-history
+```
+
+将 `--database` 改为实际的 `VERALANE_DB_PATH`。该命令只向已初始化的 VeraLane SQLite 数据库追加历史交易，不重算余额；可安全重复运行，第二次起不会重复插入。必须同时提供目标路径和 `--confirm-fictional-history`，程序不会自动加载，也不会清空流水。
 
 ## 关键演示流程
 
