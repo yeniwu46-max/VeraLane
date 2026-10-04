@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from . import db
 from .clock import SHANGHAI, business_date, business_now
-from .execution_controls import available_cents, require_verified
+from .execution_controls import available_cents, require_verified, requires_red_tier
 
 
 SNAPSHOT_FIELDS = ("contact_id", "recipient", "phone_masked", "contact_fingerprint", "amount_cents", "amount_yuan", "note")
@@ -217,7 +217,7 @@ def prepare_recurring(data: dict[str, Any]) -> dict[str, Any]:
     from .service import create_action, reply
     with db.db_session() as conn:
         payload = _recurring_payload(conn, data)
-        action = create_action(conn, data["session_id"], "recurring_transfer", "red" if payload["total_cents"] > 100000 else "yellow", payload)
+        action = create_action(conn, data["session_id"], "recurring_transfer", "red" if requires_red_tier(payload["total_cents"]) else "yellow", payload)
         return reply("请核对全部执行日期、每笔金额和总授权金额，再确认有限次数的周期转账。", data["session_id"], "offline", pending_action=action)
 
 
@@ -225,7 +225,7 @@ def prepare_batch(data: dict[str, Any]) -> dict[str, Any]:
     from .service import create_action, reply
     with db.db_session() as conn:
         payload = _batch_payload(conn, data["items"])
-        tier = "red" if _sent_today(conn) + payload["total_cents"] > 100000 else "yellow"
+        tier = "red" if requires_red_tier(_sent_today(conn) + payload["total_cents"]) else "yellow"
         action = create_action(conn, data["session_id"], "batch_transfer", tier, payload)
         return reply("请逐行核对收款人、金额和备注，确认后按顺序执行并保留每笔结果。", data["session_id"], "offline", pending_action=action)
 
@@ -236,7 +236,7 @@ def _parent(conn: sqlite3.Connection, action_id: str, sid: str, kind: str, paylo
         raise HTTPException(409, "父计划授权与当前执行范围不一致")
     if status == "pending" and datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
         raise HTTPException(409, "计划确认已过期，请重新发起")
-    if row["tier"] == "yellow" and payload["total_cents"] > 100000:
+    if row["tier"] == "yellow" and requires_red_tier(payload["total_cents"]):
         raise HTTPException(403, "计划总额超过普通确认范围，请完成模拟强验证")
     if status == "pending":
         require_verified(conn, row)

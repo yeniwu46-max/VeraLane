@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from .db import ACCOUNT_ID, USER_ID, audit, db_session, utc_now
 from .clock import business_date
-from .execution_controls import debit
+from .execution_controls import debit, requires_red_tier
 from .service import cents_from_yuan, create_action, money
 
 
@@ -147,7 +147,7 @@ def prepare_payment(sid,id,amount_yuan,channel,merchant):
     with db_session() as conn:
         card=_card(conn,id)
         _check_payment(conn,card,amount,channel)
-        return _plan(conn,sid,'card_payment','red' if amount>100000 else 'yellow',
+        return _plan(conn,sid,'card_payment','red' if requires_red_tier(amount) else 'yellow',
                      {'card_id':id,'name':card['name'],'last4':card['last4'],'version':card['version'],
                       'amount_cents':amount,'amount_yuan':money(amount),'channel':channel,'merchant':merchant},'确认后在模拟刷卡通道扣款。')
 

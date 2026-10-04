@@ -18,7 +18,7 @@ from .agent import Intent, explicitly_declines_transfer, extract_amount_text, pa
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
 from .clock import business_date, business_now
 from .schedule_time import instruction_text, parse_schedule
-from .execution_controls import available_cents, debit, require_verified
+from .execution_controls import available_cents, debit, require_verified, requires_red_tier
 
 
 def money(cents: int) -> str:
@@ -469,7 +469,7 @@ def prepare_transfer(
         "WHERE account_id = ? AND posted_on = ? AND category IN ('转账','AA结算') AND direction = 'out'",
         (ACCOUNT_ID, business_date(conn)),
     ).fetchone()[0]
-    tier = "red" if (amount if schedule is not None else sent_today + amount) > 100_000 else "yellow"
+    tier = "red" if requires_red_tier(amount if schedule is not None else sent_today + amount) else "yellow"
     payload = {
         "contact_id": contact["id"],
         "recipient": contact["name"],
@@ -651,7 +651,7 @@ def execute_transfer(
         "WHERE account_id = ? AND posted_on = ? AND category IN ('转账','AA结算') AND direction = 'out'",
         (ACCOUNT_ID, business_date(conn)),
     ).fetchone()[0]
-    if sent_today + amount > 100_000:
+    if requires_red_tier(sent_today + amount):
         if parent_tier != 'red':
             action = conn.execute("SELECT * FROM actions WHERE id=? AND session_id=?", (action_id, session_id)).fetchone()
             if action is None or action['tier'] != 'red' or action['type'] != 'transfer':

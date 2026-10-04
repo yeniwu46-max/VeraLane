@@ -25,6 +25,12 @@ from .db import ACCOUNT_ID
 
 
 DEMO_NOTICE = "模拟强验证：验证码直接展示，仅演示操作绑定与有效期，不构成真实身份验证。"
+HIGH_RISK_THRESHOLD_CENTS = 100_000
+
+
+def requires_red_tier(amount_cents: int) -> bool:
+    """Use one strict boundary for amount-based high-risk demo actions."""
+    return amount_cents > HIGH_RISK_THRESHOLD_CENTS
 
 
 def init_schema(conn: sqlite3.Connection) -> None:

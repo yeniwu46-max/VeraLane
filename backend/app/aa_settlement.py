@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from .clock import business_date, business_now
 from .db import ACCOUNT_ID, USER_ID, audit, db_session, utc_now
-from .execution_controls import available_cents, credit, debit
+from .execution_controls import available_cents, credit, debit, requires_red_tier
 from .service import contact_fingerprint, create_action, mask_phone, money, reply
 
 MAX_TOTAL_CENTS = 10_000_000
@@ -220,7 +220,7 @@ def prepare_leg(settlement_id: str, leg_id: str, session_id: str) -> dict:
                 (ACCOUNT_ID, business_date(conn))).fetchone()[0]
             if leg["amount_cents"] > available_cents(conn):
                 raise HTTPException(409, "可用余额不足，已预留资金不能用于结算转账")
-            tier = "red" if sent_today + leg["amount_cents"] > 100_000 else "yellow"
+            tier = "red" if requires_red_tier(sent_today + leg["amount_cents"]) else "yellow"
         else:
             tier = "yellow"
         if leg["pending_action_id"]:
@@ -272,7 +272,7 @@ def execute_leg(conn, action_id: str, session_id: str, payload: dict[str, Any]) 
         sent_today = conn.execute("""SELECT COALESCE(SUM(amount_cents),0) FROM transactions
             WHERE account_id=? AND posted_on=? AND category IN ('转账','AA结算') AND direction='out'""",
             (ACCOUNT_ID, business_date(conn))).fetchone()[0]
-        if sent_today + amount > 100_000 and action_id:
+        if requires_red_tier(sent_today + amount) and action_id:
             action = conn.execute("SELECT * FROM actions WHERE id=? AND session_id=?",
                                   (action_id, session_id)).fetchone()
             if action is None or action["tier"] != "red":

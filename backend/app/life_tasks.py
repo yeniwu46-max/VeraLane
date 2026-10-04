@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from . import db
 from .clock import SHANGHAI, business_now
-from .execution_controls import available_cents, consume, credit, release, require_verified, reserve
+from .execution_controls import available_cents, consume, credit, release, require_verified, reserve, requires_red_tier
 
 
 CATALOG = (
@@ -189,7 +189,7 @@ def prepare(data: dict[str, Any]) -> dict[str, Any]:
     from .service import create_action, reply
     with db.db_session() as conn:
         payload = _build(conn, data)
-        tier = "red" if payload["total_cents"] > 100000 else "yellow"
+        tier = "red" if requires_red_tier(payload["total_cents"]) else "yellow"
         action = create_action(conn, data["session_id"], "birthday_task", tier, payload)
         return reply("请核对收货人、虚构配送信息、商品与执行日期。确认后预留预算，到期按所列商品价格模拟下单。",
                      data["session_id"], "offline", pending_action=action)
@@ -207,7 +207,7 @@ def execute_create(conn: sqlite3.Connection, action_id: str, session_id: str, pa
         raise HTTPException(409, "生日任务授权与计划不一致")
     if action["status"] != "pending" or datetime.fromisoformat(action["expires_at"]) <= datetime.now(timezone.utc):
         raise HTTPException(409, "生日任务授权已过期或失效，请重新生成计划")
-    if payload["total_cents"] > 100000 and action["tier"] != "red":
+    if requires_red_tier(payload["total_cents"]) and action["tier"] != "red":
         raise HTTPException(403, "该生日支出需要模拟强验证")
     require_verified(conn, action)
     reservation_id = f"life-{action_id}"
@@ -359,7 +359,7 @@ def _authorized(conn: sqlite3.Connection, row: sqlite3.Row, payload: dict[str, A
     return bool(action and action["type"] == "birthday_task" and action["status"] == "completed"
                 and action["session_id"] == row["session_id"] and row["account_id"] == db.ACCOUNT_ID
                 and json.loads(action["payload_json"]) == payload
-                and action["tier"] == ("red" if payload["total_cents"] > 100000 else "yellow")
+                and action["tier"] == ("red" if requires_red_tier(payload["total_cents"]) else "yellow")
                 and row["reservation_id"] == f"life-{row['id']}"
                 and all(row[key] == payload[key] for key in ("birthday", "order_at", "order_expires_at", "delivery_at", "delivery_expires_at")))
 

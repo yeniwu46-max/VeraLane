@@ -56,6 +56,12 @@ def action_row(conn, id):
     return conn.execute("SELECT * FROM actions WHERE id=?", (id,)).fetchone()
 
 
+def test_amount_tier_threshold_is_strictly_over_one_thousand_yuan():
+    assert controls.HIGH_RISK_THRESHOLD_CENTS == 100_000
+    assert not controls.requires_red_tier(100_000)
+    assert controls.requires_red_tier(100_001)
+
+
 def challenge_state(id):
     with db.db_session() as conn:
         return dict(conn.execute("SELECT * FROM action_challenges WHERE id=?", (id,)).fetchone())

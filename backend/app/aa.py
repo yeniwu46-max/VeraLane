@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from .clock import business_date, business_now
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
-from .execution_controls import available_cents, debit
+from .execution_controls import available_cents, debit, requires_red_tier
 from .service import (cents_from_yuan, contact_fingerprint, create_action, get_context,
                       mask_phone, money, reply, set_context)
 from .agent import Intent, parse_intent
@@ -523,7 +523,7 @@ def prepare_refund(request_id: str, session_id: str, source_transaction_id: str,
         available = available_cents(conn)
         if amount > available:
             raise HTTPException(409, f"可用余额不足，当前可退金额上限为 ¥{money(max(available, 0))}")
-        tier = "red" if amount > 100_000 else "yellow"
+        tier = "red" if requires_red_tier(amount) else "yellow"
         action = create_action(conn, session_id, "aa_refund", tier, details)
         return reply("请确认将这部分已到账 AA 回款退回原付款人。退款会从可用余额扣除并保留原回款记录。",
                      session_id, "offline", pending_action=action)
@@ -532,7 +532,7 @@ def prepare_refund(request_id: str, session_id: str, source_transaction_id: str,
 def execute_refund(conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict) -> dict:
     action = conn.execute("SELECT * FROM actions WHERE id=?", (action_id,)).fetchone()
     if (action is None or action["type"] != "aa_refund" or action["session_id"] != session_id
-            or action["tier"] != ("red" if payload["amount_cents"] > 100_000 else "yellow")):
+            or action["tier"] != ("red" if requires_red_tier(payload["amount_cents"]) else "yellow")):
         raise HTTPException(409, "退款授权记录不一致，未执行")
     fresh = _refund_snapshot(conn, payload["request_id"], payload["source_transaction_id"],
                              payload["amount_cents"], session_id)
