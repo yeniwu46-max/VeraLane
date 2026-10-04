@@ -86,6 +86,23 @@ def test_custom_or_multiple_amounts_require_manual_allocation(message):
     assert parse_aa_message(message, CONTACTS)["aa_non_equal"] is True
 
 
+@pytest.mark.parametrize("message,weights,participants", [
+    ("聚餐我垫了120元，我一份，林悦两份，陈晨一份AA", [{"name": "我", "weight": 1}, {"name": "林悦", "weight": 2}, {"name": "陈晨", "weight": 1}], ["林悦", "陈晨"]),
+    ("我和林悦按比例分摊100元，我:1，林悦:3", [{"name": "我", "weight": 1}, {"name": "林悦", "weight": 3}], ["林悦"]),
+])
+def test_explicit_named_weights_are_extracted_without_computing_amounts(message, weights, participants):
+    value = parse_aa_message(message, CONTACTS)
+    assert value["share_weights"] == weights
+    assert value["participants"] == participants
+    assert value["aa_non_equal"] is True
+
+
+def test_partial_or_ambiguous_weight_specification_is_not_completed_by_the_parser():
+    value = parse_aa_message("我一份，王明两份，林悦AA100元", CONTACTS)
+    assert value["share_weights"] == [{"name": "我", "weight": 1}, {"name": "王明", "weight": 2}]
+    assert value["participants"] == ["王明", "林悦"]
+
+
 def test_note_is_data_and_does_not_add_participants_or_constraints():
     value = parse_aa_message("我和林悦AA100元，备注陈晨少付20元，不包括我", CONTACTS)
     assert value["participants"] == ["林悦"]

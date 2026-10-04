@@ -50,6 +50,8 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
     text = instruction_text(message)
     if slots["amount_yuan"] is not None or re.search(r"元|块", text):
         state["amount_yuan"] = slots["amount_yuan"]
+    if slots.get("share_weights") is not None:
+        state["share_weights"] = slots["share_weights"]
     for field in ("include_self", "participant_count", "note", "payer_is_self"):
         if slots[field] is not None:
             state[field] = slots[field]
@@ -57,6 +59,7 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
         state["aa_non_equal"] = True
     elif re.search(r"均分|平摊|平均分", text):
         state["aa_non_equal"] = False
+        state.pop("share_weights", None)
     source = source_transaction(conn, state.get("source_transaction_id"))
     total = source["amount_yuan"] if source else state.get("amount_yuan")
     amount = cents_from_yuan(total)
@@ -70,7 +73,10 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
     if state.get("payer_is_self") is False:
         issues.append("首版用于本人垫付后的收款；原句提到其他人垫付，请核对或改为本人垫付的支出。")
     if state.get("aa_non_equal"):
-        issues.append("检测到非均分或多个金额，请先核对总额，再在分摊表手动调整每人份额；不会自动分配差额。")
+        if state.get("share_weights"):
+            issues.append("检测到明确份数或非均分信息；请先核对总额和预填权重，再检查服务端计算的每人金额。")
+        else:
+            issues.append("检测到非均分或多个金额，请先核对总额，再在分摊表手动调整每人份额；不会自动分配差额。")
     members, seen = [], set()
     for token in state.get("participants") or []:
         candidates = [row for row in contacts if token in (row["name"], row["phone"])]
@@ -91,12 +97,34 @@ def interpret_message(conn: sqlite3.Connection, session_id: str, message: str, m
         issues.append("请提供 1–7 位其他参与人，连同本人共 2–8 人。")
     if state.get("participant_count") is not None and state["participant_count"] != len(members) + 1:
         issues.append(f"原句说共 {state['participant_count']} 人，目前名单连同本人共 {len(members) + 1} 人，请核对。")
+    suggested_share_ratios = None
+    if state.get("share_weights"):
+        ratios = {}
+        ambiguous = False
+        for entry in state["share_weights"]:
+            token = entry["name"]
+            if token in {"我", "本人", "自己"}:
+                person_id = "self"
+            else:
+                candidates = [row for row in contacts if token in (row["name"], row["phone"])]
+                person_id = candidates[0]["id"] if len(candidates) == 1 else None
+            if person_id is None or person_id in ratios:
+                ambiguous = True
+                break
+            ratios[person_id] = entry["weight"]
+        expected_ids = {"self", *(row["contact_id"] for row in members if row["contact_id"])}
+        if ambiguous or set(ratios) != expected_ids or not any(ratios.values()):
+            issues.append("已识别到按人分配的份数，但名单存在歧义或份数没有覆盖本人及全部参与人；请核对联系人，并为每人明确填写份数。")
+        else:
+            suggested_share_ratios = ratios
     draft = {"total_yuan": money(amount) if amount is not None else None, "note": state.get("note") or (source["counterparty"] if source else "AA 分摊"),
              "include_self": state.get("include_self"), "payer_is_self": state.get("payer_is_self"),
              "participant_count": state.get("participant_count"), "source_transaction": source,
-             "participants": members, "needs_review": issues, "requires_custom_shares": bool(state.get("aa_non_equal"))}
+             "participants": members, "needs_review": issues, "requires_custom_shares": bool(state.get("aa_non_equal")),
+             "suggested_share_ratios": suggested_share_ratios}
     set_context(conn, session_id, {"pending_aa": state})
-    return reply(" ".join(issues) if issues else "已提取分摊信息。请核对名单并计算预览，确认后才建立收款单。",
+    ratio_message = "已识别明确的份数并预填比例权重；服务端会重新计算金额，请核对每个人的份数和分摊结果。" if suggested_share_ratios else None
+    return reply(" ".join(issues) if issues else ratio_message or "已提取分摊信息。请核对名单并计算预览，确认后才建立收款单。",
                  session_id, mode, aa_draft=draft)
 
 

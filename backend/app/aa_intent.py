@@ -13,6 +13,31 @@ COUNT = re.compile(r"(?:总共|一共|共)?([零〇一二三四五六七八九�
 MONEY = re.compile(r"[+\-−－＋¥￥\d.,，eE\s]+(?:元|块)")
 PHONE = re.compile(r"1[3-9]\d{9}")
 NON_EQUAL = re.compile(r"少付|多付|少出|多出|各付|各出|分别付|分别出|每人|一人\s*\d|比例|按份|不均分|不平摊|不平均|承担\s*\d|付\s*\d.*付\s*\d")
+WEIGHT_NUMBER = r"[零〇一二三四五六七八九十两\d]{1,7}"
+
+
+def _explicit_share_weights(text: str, contact_names: list[str]) -> tuple[list[dict] | None, str]:
+    """Read only explicit, named integer weights; never derive money amounts."""
+    names = sorted(set(contact_names), key=len, reverse=True)
+    aliases = ["我", "本人", "自己", *names]
+    # Full phone numbers are useful when a contact name is ambiguous.
+    pattern = re.compile(
+        rf"(?P<name>{'|'.join(re.escape(name) for name in aliases)}|1[3-9]\d{{9}})"
+        rf"\s*(?:(?:[:：=]\s*(?P<colon>{WEIGHT_NUMBER}))|(?:\s*(?P<units>{WEIGHT_NUMBER})\s*(?:份额|份)))"
+    )
+    weights: list[dict] = []
+    cleaned = text
+    for match in reversed(list(pattern.finditer(text))):
+        value = chinese_number(match.group("colon") or match.group("units"))
+        if value is None or value < 0 or value > 1_000_000:
+            continue
+        weights.insert(0, {"name": match.group("name"), "weight": value})
+        # Keep names that appear only in the weight list; avoid duplicating a
+        # participant already named earlier in the sentence.
+        outside = text[:match.start()] + text[match.end():]
+        replacement = "" if match.group("name") not in {"我", "本人", "自己"} and match.group("name") in outside else match.group("name")
+        cleaned = cleaned[:match.start()] + replacement + cleaned[match.end():]
+    return (weights or None), cleaned
 
 
 def wants_aa(message: str) -> bool:
@@ -85,7 +110,7 @@ def parse_aa_message(message: str, contact_names: list[str]) -> dict:
     if payer:
         payer_is_self = bool(re.search(r"我(?:自己|来)?$", payer[1])) and not payer[1].endswith("不是我")
 
-    cleaned = text
+    share_weights, cleaned = _explicit_share_weights(text, contact_names)
     # Remove narrative payment clauses before looking for participant lists.
     cleaned = re.sub(r"[^，,。；;]*?(?:垫付|垫了|付了|支付了|买单|付款)\s*(?:[+\-−－＋¥￥\d.,eE\s]+(?:元|块))?", "", cleaned)
     cleaned = re.sub(r"不包括我|不包含我|不含我|不算我|我不(?:参与|参加|分摊|承担)|除我(?:以外|之外)?", "", cleaned)
@@ -95,6 +120,7 @@ def parse_aa_message(message: str, contact_names: list[str]) -> dict:
     cleaned = AA_WORDS.sub("", cleaned)
     cleaned = re.sub(r"聚餐|房租|打车|旅游|餐费|团建|饭钱", "", cleaned)
     cleaned = re.sub(r"(?:帮我|请)(?:生成|建立|创建|发起)?|生成|建立|创建|发起|收款|一共|总共|一起|平均|均摊", "", cleaned)
+    cleaned = re.sub(r"按比例(?:分摊|分账|分帐)?|比例分摊", "", cleaned)
     cleaned = re.sub(r"(?:参与人|参与者|成员|人员)(?:包括|为|是)?\s*[：:]?", "", cleaned)
     cleaned = re.sub(r"(?:让|由|找|向)|[：:。；;]", "，", cleaned)
     cleaned = re.sub(r"(?:来|吧|一下|帮忙|帮我)$", "", cleaned).strip(" ，,、和与")
@@ -115,6 +141,7 @@ def parse_aa_message(message: str, contact_names: list[str]) -> dict:
         "include_self": include_self,
         "participant_count": count,
         "note": note,
-        "aa_non_equal": non_equal,
+        "aa_non_equal": non_equal or share_weights is not None,
         "payer_is_self": payer_is_self,
+        "share_weights": share_weights,
     }

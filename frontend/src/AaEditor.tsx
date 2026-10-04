@@ -84,7 +84,8 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       setNote(draft.note); setRows(rowsFromDraft(draft)); setIncludeSelf(draft.include_self === true && draft.payer_is_self === true)
       setRequiresCustom(draft.requires_custom_shares)
       setNeedsReview(draft.needs_review); setReviewAcknowledged(false)
-      setAllocationMode('equal'); setRatioValues({})
+      setAllocationMode(draft.suggested_share_ratios ? 'proportional' : 'equal')
+      setRatioValues(Object.fromEntries(Object.entries(draft.suggested_share_ratios || {}).map(([id, weight]) => [id, String(weight)])))
       setItemizedRows([])
     } catch (cause) { setError(cause instanceof Error ? cause.message : '理解分账需求失败') }
     finally { setBusy(false) }

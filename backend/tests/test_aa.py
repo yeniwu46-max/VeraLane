@@ -500,6 +500,25 @@ def test_multi_turn_phone_disambiguation_preserves_every_other_member(client, en
         assert conn.execute("SELECT COUNT(*) FROM aa_requests").fetchone()[0] == 0
 
 
+def test_explicit_named_weights_prefill_verified_contact_ratio_ids(client):
+    draft = interpret(client, "聚餐我垫了120元，我一份，林悦两份，陈晨一份AA")
+    assert draft["suggested_share_ratios"] == {"self": 1, LIN: 2, CHEN: 1}
+    assert draft["include_self"] is True
+    assert draft["payer_is_self"] is True
+    assert draft["requires_custom_shares"] is True
+    assert draft["needs_review"]
+    plan = preview(client, total_yuan="120", shares_ratio=draft["suggested_share_ratios"])
+    assert plan["allocation_method"] == "proportional"
+    assert plan["share_ratios"] == {"self": 1, LIN: 2, CHEN: 1}
+    assert [row["amount_yuan"] for row in plan["participants"]] == ["30.00", "60.00", "30.00"]
+
+
+def test_ambiguous_contact_name_never_gets_an_automatic_weight(client):
+    draft = interpret(client, "我垫了120元，我一份，王明两份，林悦一份AA")
+    assert draft["suggested_share_ratios"] is None
+    assert any("联系人" in issue and "份数" in issue for issue in draft["needs_review"])
+
+
 @pytest.mark.parametrize("endpoint", ["/api/aa/interpret", "/api/chat"])
 def test_follow_up_note_cannot_supply_missing_amount_members_or_self_exclusion(client, endpoint):
     first = interpret(client, "我和林悦AA", endpoint)

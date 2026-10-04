@@ -6,6 +6,7 @@ export type AaDraft = {
   include_self: boolean | null
   payer_is_self: boolean | null
   requires_custom_shares: boolean
+  suggested_share_ratios: Record<string, number> | null
   participant_count: number | null
   source_transaction: AaSource | null
   participants: { name: string; contact_id: string | null; phone_masked: string | null; choices: AaContact[] }[]
