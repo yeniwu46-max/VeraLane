@@ -34,6 +34,7 @@ from .life_tasks_api import router as life_router
 from .aliases_api import router as aliases_router
 from .recurring_api import router as recurring_router
 from .bill_preferences_api import router as bill_preferences_router
+from .receipt_ocr import router as receipt_ocr_router
 
 
 async def scheduler_loop():
@@ -70,6 +71,7 @@ app.include_router(life_router)
 app.include_router(aliases_router)
 app.include_router(recurring_router)
 app.include_router(bill_preferences_router)
+app.include_router(receipt_ocr_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
