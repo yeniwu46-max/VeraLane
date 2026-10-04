@@ -3,7 +3,7 @@ import type { BillTransaction } from './BillVisuals'
 import { formatBankTime } from './bankTime'
 import './SubscriptionPanel.css'
 
-type Diagnostic = { merchant: string; subscription_id: string | null; status: 'active' | 'cancelled' | 'candidate'; cycle: string; confidence: string; renewal_on: string | null; estimated_renewal: { from: string; to: string; overdue: boolean } | null; amount_yuan: string; price_change_yuan: string; price_increased: boolean; after_cancel_ids: string[]; limitations: string[]; evidence: BillTransaction[] }
+type Diagnostic = { merchant: string; subscription_id: string | null; status: 'active' | 'cancelled' | 'candidate'; cycle: string; confidence: string; renewal_on: string | null; estimated_renewal: { from: string; to: string; overdue: boolean } | null; amount_yuan: string; price_change_yuan: string; price_increased: boolean; after_cancel_ids: string[]; same_day_cancel_ids: string[]; limitations: string[]; evidence: BillTransaction[] }
 type Reminder = { id: string; kind: 'renewal' | 'aa_collection'; title: string; body: string; due_on: string; source_status: 'active' | 'cancelled' | 'pending' | 'partial' | 'completed' | 'closed' | null; read_at: string | null; created_at: string }
 type BatchItem = { subscription_id: string; merchant: string; amount_yuan: string; renewal_on: string; status?: 'completed' | 'failed'; message?: string }
 type BatchDetails = { items: BatchItem[]; period_start: string; period_end: string; expected_savings_yuan: string }
@@ -30,6 +30,7 @@ function EvidenceDialog({ item, onClose }: { item: Diagnostic; onClose: () => vo
     {item.evidence.length ? <ul className="sub-manager__evidence">{item.evidence.map((tx) => <li key={tx.id}>
       <div><strong>{tx.posted_on}</strong><b>{money(tx.amount_yuan)}</b></div><p>{tx.category} · {tx.note || '无备注'}</p><small>交易编号 {tx.id}</small>
       {item.after_cancel_ids.includes(tx.id) && <p className="sub-manager__attention">这笔记录发生在取消日期之后，请核对扣费来源。</p>}
+      {item.same_day_cancel_ids.includes(tx.id) && <p className="sub-manager__attention">这笔记录与取消操作发生在同一天；账单只有日期，无法判断先后，请人工复核。</p>}
     </li>)}</ul> : <p className="sub-manager__muted">已保存协议，暂时没有匹配的历史扣费记录。</p>}
     <ul className="sub-manager__limitations">{item.limitations.map((line) => <li key={line}>{line}</li>)}</ul>
   </dialog>
@@ -109,7 +110,7 @@ function SubscriptionPanelContent({ sessionId, onChanged }: SubscriptionPanelPro
         {data.diagnostics.items.map((item) => <article className="sub-manager__row" key={item.subscription_id || item.merchant}>
           <div className="sub-manager__row-title"><label>{item.status === 'active' && item.subscription_id && <input type="checkbox" checked={selected.includes(item.subscription_id)} disabled={busy} onChange={(event) => choose(item.subscription_id!, event.target.checked)} aria-label={`选择取消${item.merchant}银行代扣`} />}<strong>{item.merchant}</strong></label><span className={`sub-manager__status sub-manager__status--${item.status}`}>{statusLabels[item.status]}</span><b>{money(item.amount_yuan)}</b></div>
           <div className="sub-manager__row-facts"><span>{item.confidence} · 周期 {item.cycle}</span>{item.renewal_on && <span>协议续费日 {item.renewal_on}</span>}{item.status === 'cancelled' && <span>商户会员状态未知</span>}{item.estimated_renewal && <span>预计 {item.estimated_renewal.from}—{item.estimated_renewal.to}{item.estimated_renewal.overdue ? '（历史预测，待核对）' : ''}</span>}</div>
-          <div className="sub-manager__row-actions"><span>{item.price_increased ? `最近两笔扣费增加 ${money(item.price_change_yuan)}` : item.status === 'candidate' ? '未找到对应协议，暂不能在此取消' : '按保存的协议核对金额与日期'}{item.after_cancel_ids.length > 0 && ` · 取消后有 ${item.after_cancel_ids.length} 笔记录待核对`}</span><button type="button" className="sub-manager__quiet" onClick={() => setEvidence(item)}>查看依据 · {item.evidence.length} 笔</button></div>
+          <div className="sub-manager__row-actions"><span>{item.price_increased ? `最近两笔扣费增加 ${money(item.price_change_yuan)}` : item.status === 'candidate' ? '未找到对应协议，暂不能在此取消' : '按保存的协议核对金额与日期'}{item.after_cancel_ids.length > 0 && ` · 取消日期后有 ${item.after_cancel_ids.length} 笔待核对`}{item.same_day_cancel_ids.length > 0 && ` · 另有 ${item.same_day_cancel_ids.length} 笔与取消同日，先后不明`}</span><button type="button" className="sub-manager__quiet" onClick={() => setEvidence(item)}>查看依据 · {item.evidence.length} 笔</button></div>
         </article>)}
       </div>
       <div className="sub-manager__selection"><p>已选择 {selected.length} 项代扣<span>只处理你选中的协议。</span></p><button type="button" className="sub-manager__primary" disabled={busy || !selected.length} onClick={prepare}>{busy ? '正在处理…' : '预览取消计划'}</button></div>

@@ -38,6 +38,21 @@ def test_batch_confirm_receipts_and_no_cash_refund(client):
     assert client.get('/api/overview').json()['account']['balance_yuan']=='8888.30'
 
 
+def test_same_day_charge_after_cancellation_is_flagged_as_order_unknown(client):
+    prepared = client.post('/api/subscriptions/sub-music/prepare-cancel', json={'session_id': 's'})
+    action = prepared.json()['pending_action']
+    assert client.post(f"/api/actions/{action['id']}/confirm", json={'session_id': 's'}).status_code == 200
+    with db.db_session() as conn:
+        cancelled_on = conn.execute("SELECT cancelled_at FROM subscription_closures WHERE subscription_id='sub-music'").fetchone()[0][:10]
+        conn.execute("""INSERT INTO transactions
+            (id,account_id,posted_on,direction,amount_cents,counterparty,category,note)
+            VALUES('same-day-after-cancel',? ,?,'out',2100,'青柠音乐','数字服务','同日模拟扣费')""",
+            (db.ACCOUNT_ID, cancelled_on))
+    item = next(i for i in client.get('/api/subscriptions/diagnostics').json()['items'] if i['subscription_id'] == 'sub-music')
+    assert 'same-day-after-cancel' in item['same_day_cancel_ids']
+    assert 'same-day-after-cancel' not in item['after_cancel_ids']
+
+
 def test_batch_partial_preserves_state_change(client):
     action=prepare(client)
     with db.db_session() as conn:

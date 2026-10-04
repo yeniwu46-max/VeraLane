@@ -54,6 +54,7 @@ def diagnosis(conn):
         rise = last['amount_cents']-previous['amount_cents'] if previous else 0
         closure = conn.execute("SELECT cancelled_at FROM subscription_closures WHERE subscription_id=?", (sub['id'],)).fetchone() if sub else None
         after_cancel = [r['id'] for r in history if closure and r['posted_on'] > closure['cancelled_at'][:10]]
+        same_day_cancel = [r['id'] for r in history if closure and r['posted_on'] == closure['cancelled_at'][:10]]
         items.append({
             'merchant': merchant, 'subscription_id': sub['id'] if sub else None,
             'status': sub['status'] if sub else 'candidate', 'cycle': cycle if stable else '待核对',
@@ -62,6 +63,7 @@ def diagnosis(conn):
             'estimated_renewal': estimated, 'amount_yuan': money(sub['amount_cents'] if sub else last['amount_cents']),
             'price_change_yuan': money(rise), 'price_increased': rise > 0,
             'after_cancel_ids': after_cancel,
+            'same_day_cancel_ids': same_day_cancel,
             'limitations': ['账单不能说明服务使用频率。', '取消银行代扣不等于退订商户会员。'] + ([] if len(days)>=3 else ['历史样本少，周期不能视为已确定。']),
             'evidence': [{'id': r['id'], 'posted_on': r['posted_on'], 'counterparty': r['counterparty'], 'category': r['category'], 'note': r['note'], 'amount_yuan': money(r['amount_cents'])} for r in reversed(history)],
         })
