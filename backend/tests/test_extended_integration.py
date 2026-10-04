@@ -173,3 +173,10 @@ def test_production_static_mount_is_only_public_dist_and_keeps_api_priority(clie
     # Inspect response statuses only: never print or retain a potential secret body.
     for path in ("/.env", "/backend/.env", "/data/veralane.sqlite3", "/backend/data/veralane.sqlite3", "/%2e%2e/.env", "/%2e%2e/%2e%2e/backend/data/veralane.sqlite3"):
         assert client.get(path).status_code == 404, path
+
+
+def test_hsts_is_emitted_only_for_https_requests():
+    secure_client = TestClient(main.app, base_url="https://testserver")
+    response = secure_client.get("/api/health")
+    assert response.status_code == 200
+    assert response.headers["strict-transport-security"] == "max-age=31536000"
