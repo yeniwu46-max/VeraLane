@@ -39,6 +39,43 @@ def test_transfer_requires_confirmation_and_is_idempotent(client):
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8588.30"
 
 
+def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
+    balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    result = send(client, "不要转给林悦100元")
+    assert "pending_action" not in result
+    assert "未发生扣款" in result["message"]
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == balance
+
+
+def test_negation_withdraws_pending_transfer_action_and_does_not_match_reminders(client):
+    action = send(client, "转给林悦100元")["pending_action"]
+    result = send(client, "现在不要再转给林悦了")
+    assert "pending_action" not in result
+    rejected = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": "test-session"})
+    assert rejected.status_code == 409
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8888.30"
+    reminder = send(client, "不要忘记转给林悦100元", session_id="positive-reminder")
+    assert reminder["pending_action"]["type"] == "transfer"
+
+
+def test_negation_clears_partial_transfer_slots_without_cancelling_approved_schedule(client):
+    partial = send(client, "转给林悦")
+    assert "pending_action" not in partial
+    declined = send(client, "暂时不转账了")
+    assert "未确认的转账草稿" in declined["message"]
+    assert "pending_action" not in send(client, "100元")
+
+    scheduled = send(client, "明天晚上8点给林悦转100元")["pending_action"]
+    completed = client.post(f"/api/actions/{scheduled['id']}/confirm", json={"session_id": "test-session"})
+    assert completed.status_code == 200
+    send(client, "不要再转给林悦了")
+    with db.db_session() as conn:
+        schedule = conn.execute("SELECT status FROM scheduled_transfers WHERE id=?", (scheduled["id"],)).fetchone()
+        assert schedule["status"] == "pending"
+
+
 def test_red_transfer_cannot_bypass_strong_verification(client):
     prepared = send(client, "转给林悦1200元")
     action = prepared["pending_action"]

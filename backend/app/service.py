@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from .agent import Intent, extract_amount_text, parse_intent
+from .agent import Intent, explicitly_declines_transfer, extract_amount_text, parse_intent
 from .db import ACCOUNT_ID, USER_ID, audit, connect, db_session, utc_now
 from .clock import business_date, business_now
 from .schedule_time import instruction_text, parse_schedule
@@ -108,8 +108,40 @@ def reply(message: str, session_id: str, mode: str, **extra: Any) -> dict[str, A
     return {"session_id": session_id, "message": message, "mode": mode, **extra}
 
 
+def decline_transfer_request(session_id: str) -> dict[str, Any]:
+    """Withdraw this session's unconfirmed transfer draft/actions atomically."""
+    with db_session(immediate=True) as conn:
+        context = get_context(conn, session_id)
+        had_draft = context.pop("pending_transfer", None) is not None
+        pending = conn.execute(
+            "SELECT id FROM actions WHERE session_id=? AND type='transfer' AND status='pending'",
+            (session_id,),
+        ).fetchall()
+        action_ids = [row["id"] for row in pending]
+        for action_id in action_ids:
+            conn.execute(
+                "UPDATE actions SET status='failed', result_json=? WHERE id=? AND status='pending'",
+                (json.dumps({"status": "cancelled", "message": "用户明确撤回了转账请求，未执行"}, ensure_ascii=False), action_id),
+            )
+            conn.execute(
+                "UPDATE action_challenges SET status='revoked' WHERE action_id=? AND status IN ('active','verified')",
+                (action_id,),
+            )
+        set_context(conn, session_id, context)
+        audit(conn, session_id, "transfer_intent_withdrawn", {
+            "pending_draft_cleared": had_draft,
+            "invalidated_action_ids": action_ids,
+        })
+    return reply(
+        "收到，你明确表示不进行这笔转账。未确认的转账草稿与待确认操作已清除，未发生扣款。若要取消已确认的预约，请到“我的预约”中选择该笔取消。",
+        session_id, "offline",
+    )
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
+    if explicitly_declines_transfer(request_text):
+        return decline_transfer_request(session_id)
     if re.search(r'少花|省下|节省|省钱|减少.{0,6}支出', request_text):
         from .plans import preview_plan
         plan_reply = preview_plan(session_id, request_text)
