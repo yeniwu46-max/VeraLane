@@ -120,6 +120,42 @@ def test_transfer_history_query_clarifies_unsupported_relative_period(client):
         assert conn.execute("SELECT COUNT(*) FROM audit WHERE event='transfer_history_queried'").fetchone()[0] == 0
 
 
+def test_transfer_history_query_uses_confirmed_contact_identity_for_duplicate_names(client):
+    transaction_ids = {}
+    for contact_id in ("contact-wang1", "contact-wang2"):
+        session_id = f"wang-session-{contact_id}"
+        draft = send(client, "转给王明100元", session_id=session_id)
+        selected = next(item for item in draft["choices"] if item["id"] == contact_id)
+        resolved = client.post("/api/transfers/resolve", json={
+            "session_id": session_id, "contact_id": selected["id"],
+        })
+        assert resolved.status_code == 200
+        action = resolved.json()["pending_action"]
+        confirmed = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": session_id})
+        assert confirmed.status_code == 200
+        transaction_ids[contact_id] = confirmed.json()["transaction_id"]
+
+    exact = send(client, "查一下转给13900001111的记录", session_id="phone-query")
+    assert [row["id"] for row in exact["transaction_query"]["transactions"]] == [transaction_ids["contact-wang1"]]
+    assert "139****1111" in exact["message"]
+
+    name_query = send(client, "查一下王明转账记录", session_id="name-query")
+    rows = name_query["transaction_query"]["transactions"]
+    assert {row["id"] for row in rows} == set(transaction_ids.values())
+    assert {row["recipient_phone_masked"] for row in rows} == {"139****1111", "139****2222"}
+    with db.db_session() as conn:
+        audit = conn.execute(
+            "SELECT details_json FROM audit WHERE session_id='phone-query' AND event='transfer_history_queried'"
+        ).fetchone()["details_json"]
+        assert "13900001111" not in audit
+
+    unknown_phone = send(client, "查一下转给13999990000的记录", session_id="unknown-phone-query")
+    assert unknown_phone["transaction_query"]["needs_clarification"] is True
+    assert unknown_phone["transaction_query"]["transactions"] == []
+    mismatched = send(client, "查一下林悦13900001111的转账记录", session_id="mismatched-query")
+    assert mismatched["transaction_query"]["needs_clarification"] is True
+
+
 def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
     balance = client.get("/api/overview").json()["account"]["balance_yuan"]
     result = send(client, "不要转给林悦100元")

@@ -271,6 +271,34 @@ def _query_transfer_history(
     session_id: str, text: str, contact_names: list[str]
 ) -> dict[str, Any]:
     recipient = next((name for name in sorted(contact_names, key=len, reverse=True) if name in text), None)
+    phone_tokens = list(dict.fromkeys(item["phone"] for item in _matching_phone(text)))
+    recipient_contact_id = None
+    if phone_tokens:
+        if len(phone_tokens) != 1:
+            return reply(
+                "一次只能按一个完整手机号查询。请只保留一个收款人号码再试。",
+                session_id, "offline",
+                transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+            )
+        with db_session() as conn:
+            phone_matches = conn.execute(
+                "SELECT id, name FROM contacts WHERE user_id=? AND verified=1 AND phone=?",
+                (USER_ID, phone_tokens[0]),
+            ).fetchall()
+        if len(phone_matches) != 1:
+            return reply(
+                "这个手机号未匹配到唯一的已验证联系人，无法精确核对转账流水。请先在联系人中确认号码，或改用联系人姓名查询。",
+                session_id, "offline",
+                transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+            )
+        if recipient and recipient != phone_matches[0]["name"]:
+            return reply(
+                "查询中的联系人姓名与手机号对应的联系人不一致，请核对收款人后重试。",
+                session_id, "offline",
+                transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+            )
+        recipient = phone_matches[0]["name"]
+        recipient_contact_id = phone_matches[0]["id"]
     amount_text = extract_amount(text)
     amount_was_mentioned = bool(re.search(r"[+\-−－＋¥￥\d.,，\s]+(?:元|块)", text))
     amount_cents = cents_from_yuan(amount_text)
@@ -297,27 +325,34 @@ def _query_transfer_history(
             transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
         )
 
-    clauses = ["account_id = ?", "direction = 'out'", "category IN ('转账','AA结算')"]
+    clauses = ["t.account_id = ?", "t.direction = 'out'", "t.category IN ('转账','AA结算')"]
     params: list[Any] = [ACCOUNT_ID]
     if recipient:
-        clauses.append("counterparty = ?")
+        clauses.append("t.counterparty = ?")
         params.append(recipient)
     if amount_cents is not None:
-        clauses.append("amount_cents = ?")
+        clauses.append("t.amount_cents = ?")
         params.append(amount_cents)
+    if recipient_contact_id:
+        clauses.append("COALESCE(json_extract(a.payload_json, '$.contact_id'), "
+                       "json_extract(a.payload_json, '$.counterparty_id')) = ?")
+        params.append(recipient_contact_id)
     if period:
-        clauses.extend(("posted_on >= ?", "posted_on <= ?"))
+        clauses.extend(("t.posted_on >= ?", "t.posted_on <= ?"))
         params.extend((period["start"], period["end"]))
 
     with db_session() as conn:
         rows = conn.execute(
-            "SELECT id, posted_on, amount_cents, counterparty, category, note "
-            "FROM transactions WHERE " + " AND ".join(clauses) +
-            " ORDER BY posted_on DESC, id DESC LIMIT 50",
+            "SELECT t.id, t.posted_on, t.amount_cents, t.counterparty, t.category, t.note, "
+            "COALESCE(json_extract(a.payload_json, '$.phone_masked'), "
+            "json_extract(a.payload_json, '$.counterparty_phone_masked')) AS recipient_phone_masked "
+            "FROM transactions t LEFT JOIN actions a ON a.id=t.action_id WHERE " + " AND ".join(clauses) +
+            " ORDER BY t.posted_on DESC, t.id DESC LIMIT 50",
             params,
         ).fetchall()
         audit(conn, session_id, "transfer_history_queried", {
             "recipient_filtered": recipient is not None,
+            "contact_filtered": recipient_contact_id is not None,
             "amount_filtered": amount_cents is not None,
             "period": period["label"] if period else None,
             "transaction_ids": [row["id"] for row in rows],
@@ -328,7 +363,9 @@ def _query_transfer_history(
     ]
     if transactions:
         details = "\n".join(
-            f"{row['posted_on']}｜{row['counterparty']}｜¥{row['amount_yuan']}｜{row['category']}｜流水 {row['id']}"
+            f"{row['posted_on']}｜{row['counterparty']}"
+            + (f"（{row['recipient_phone_masked']}）" if row["recipient_phone_masked"] else "")
+            + f"｜¥{row['amount_yuan']}｜{row['category']}｜流水 {row['id']}"
             + (f"｜备注：{row['note']}" if row["note"] else "")
             for row in transactions
         )
@@ -337,7 +374,10 @@ def _query_transfer_history(
         if len(transactions) == 50:
             prefix += "\n仅展示最近 50 笔匹配记录。"
         if recipient == "王明":
-            prefix += "\n备注：通讯录中有重名联系人，流水只保存显示姓名，无法据此区分具体手机号或收款账户。"
+            if all(row["recipient_phone_masked"] for row in transactions):
+                prefix += "\n备注：流水关联了确认时的收款联系人；上方为掩码手机号，可用于区分重名对象。"
+            else:
+                prefix += "\n备注：部分旧流水没有可关联的收款联系人记录，无法据此区分具体手机号或收款账户。"
         suffix = "这些记录只能证明模拟账本已记账，不能证明外部银行或收款人实际到账。"
         if re.search(r"失败|没到账|未到账", text):
             suffix += "这里查询的是已入账流水，不能据此判断未入账操作的失败原因。"
