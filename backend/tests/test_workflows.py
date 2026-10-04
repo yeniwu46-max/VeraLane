@@ -39,6 +39,58 @@ def test_transfer_requires_confirmation_and_is_idempotent(client):
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8588.30"
 
 
+def test_transfer_history_question_is_read_only_and_returns_ledger_evidence(client):
+    with db.db_session() as conn:
+        conn.execute(
+            "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note) "
+            "VALUES (?, ?, ?, 'out', ?, ?, '转账', ?)",
+            ("tx-history-lin", db.ACCOUNT_ID, "2026-09-20", 30000, "林悦", "房租"),
+        )
+    original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    result = send(client, "查一下转给林悦300元的记录")
+    assert "pending_action" not in result
+    assert "流水 tx-history-lin" in result["message"]
+    assert "不能证明外部银行" in result["message"]
+    assert result["transaction_query"]["transactions"][0]["amount_yuan"] == "300.00"
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
+        audit = conn.execute(
+            "SELECT details_json FROM audit WHERE session_id=? AND event='transfer_history_queried'",
+            ("test-session",),
+        ).fetchone()
+        assert "tx-history-lin" in audit["details_json"]
+
+
+def test_transfer_failure_question_does_not_prepare_a_new_debit(client):
+    original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    result = send(client, "为什么我转给林悦300元失败了")
+    assert "pending_action" not in result
+    assert "没有找到" in result["message"]
+    assert "失败状态和原因不在这份流水中" in result["message"]
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
+
+
+def test_prior_transfer_question_is_read_only(client):
+    result = send(client, "我之前给林悦转过300元吗")
+    assert "pending_action" not in result
+    assert "没有找到" in result["message"]
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
+
+
+def test_transfer_history_query_preserves_an_unfinished_transfer_draft(client):
+    partial = send(client, "转给林悦")
+    assert "pending_action" not in partial
+    queried = send(client, "查一下转给林悦300元的记录")
+    assert "pending_action" not in queried
+    completed = send(client, "300元")
+    assert completed["pending_action"]["details"]["recipient"] == "林悦"
+    assert completed["pending_action"]["details"]["amount_yuan"] == "300.00"
+
+
 def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
     balance = client.get("/api/overview").json()["account"]["balance_yuan"]
     result = send(client, "不要转给林悦100元")

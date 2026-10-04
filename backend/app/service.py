@@ -171,6 +171,8 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
         now = business_now(conn)
     contact_names = list(dict.fromkeys(row["name"] for row in contacts))
     subscription_names = [row["merchant"] for row in subscriptions]
+    if _is_transfer_history_query(request_text):
+        return _query_transfer_history(session_id, request_text, contact_names)
     parsed = await parse_intent(message, contact_names, subscription_names)
     intent = parsed.intent
     if intent.action in ('transfer', 'unknown'):
@@ -250,6 +252,84 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
             return prepare_transfer(conn, session_id, parsed.mode, intent, message, schedule)
         set_context(conn, session_id, {})
         return reply("我目前能处理余额查询、账单分析、转账、AA 分摊和订阅管理。请描述其中一项具体需求。", session_id, parsed.mode)
+
+
+_TRANSFER_HISTORY_MARKER = re.compile(
+    r"查|查询|核对|记录|历史|失败|成功|转过|转了|有没有|是否|吗|不记得|没到账|未到账"
+)
+_TRANSFER_HISTORY_VERB = re.compile(r"转账|转给|转过|转了|汇给|打给|转出|转入")
+
+
+def _is_transfer_history_query(text: str) -> bool:
+    """Match explicit read-only questions about transfer records, not transfer commands."""
+    command = instruction_text(text)
+    return bool(_TRANSFER_HISTORY_VERB.search(command) and _TRANSFER_HISTORY_MARKER.search(command))
+
+
+def _query_transfer_history(
+    session_id: str, text: str, contact_names: list[str]
+) -> dict[str, Any]:
+    recipient = next((name for name in sorted(contact_names, key=len, reverse=True) if name in text), None)
+    amount_text = extract_amount(text)
+    amount_was_mentioned = bool(re.search(r"[+\-−－＋¥￥\d.,，\s]+(?:元|块)", text))
+    amount_cents = cents_from_yuan(amount_text)
+    if amount_was_mentioned and amount_cents is None:
+        return reply(
+            "我识别到金额写法不完整，暂时无法按金额筛选流水。请用例如“查转给林悦 300 元的记录”这样的格式。",
+            session_id, "offline", transaction_query={"type": "transfer_history", "transactions": []},
+        )
+
+    clauses = ["account_id = ?", "direction = 'out'", "category IN ('转账','AA结算')"]
+    params: list[Any] = [ACCOUNT_ID]
+    if recipient:
+        clauses.append("counterparty = ?")
+        params.append(recipient)
+    if amount_cents is not None:
+        clauses.append("amount_cents = ?")
+        params.append(amount_cents)
+
+    with db_session() as conn:
+        rows = conn.execute(
+            "SELECT id, posted_on, amount_cents, counterparty, category, note "
+            "FROM transactions WHERE " + " AND ".join(clauses) +
+            " ORDER BY posted_on DESC, id DESC LIMIT 50",
+            params,
+        ).fetchall()
+        audit(conn, session_id, "transfer_history_queried", {
+            "recipient_filtered": recipient is not None,
+            "amount_filtered": amount_cents is not None,
+            "transaction_ids": [row["id"] for row in rows],
+        })
+
+    transactions = [
+        {**dict(row), "amount_yuan": money(row["amount_cents"])} for row in rows
+    ]
+    if transactions:
+        details = "\n".join(
+            f"{row['posted_on']}｜{row['counterparty']}｜¥{row['amount_yuan']}｜{row['category']}｜流水 {row['id']}"
+            + (f"｜备注：{row['note']}" if row["note"] else "")
+            for row in transactions
+        )
+        prefix = f"在模拟账户的已入账转账流水中找到 {len(transactions)} 笔：\n{details}"
+        if recipient == "王明":
+            prefix += "\n备注：通讯录中有重名联系人，流水只保存显示姓名，无法据此区分具体手机号或收款账户。"
+        suffix = "这些记录只能证明模拟账本已记账，不能证明外部银行或收款人实际到账。"
+        if re.search(r"失败|没到账|未到账", text):
+            suffix += "这里查询的是已入账流水，不能据此判断未入账操作的失败原因。"
+        message = prefix + "\n" + suffix
+    else:
+        who = f"给{recipient}" if recipient else ""
+        amount = f" ¥{money(amount_cents)}" if amount_cents is not None else ""
+        message = (
+            f"模拟账户的已入账转账流水中没有找到{who}{amount}的匹配记录。"
+            "这不代表外部银行操作失败或收款人未到账；我这里只能核对本地模拟账本。"
+        )
+        if re.search(r"失败|没到账|未到账", text):
+            message += "未入账操作的失败状态和原因不在这份流水中。"
+    return reply(
+        message, session_id, "offline",
+        transaction_query={"type": "transfer_history", "transactions": transactions},
+    )
 
 
 def _matching_phone(text: str) -> list[dict[str, str]]:
