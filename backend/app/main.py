@@ -108,6 +108,13 @@ class AaOwnerRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
 
 
+class AaItemizedLineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: str = Field(min_length=1, max_length=80)
+    amount_yuan: str = Field(min_length=1, max_length=30)
+    participant_ids: list[str] = Field(min_length=1, max_length=8)
+
+
 class AaInterpretRequest(AaOwnerRequest):
     message: str = Field(min_length=1, max_length=500)
     source_transaction_id: str | None = Field(default=None, max_length=200)
@@ -122,6 +129,7 @@ class AaPlanRequest(AaOwnerRequest):
     source_transaction_id: str | None = Field(default=None, max_length=200)
     shares_yuan: dict[str, str] | None = Field(default=None, max_length=8)
     shares_ratio: dict[str, int] | None = Field(default=None, max_length=8)
+    itemized_items: list[AaItemizedLineRequest] | None = Field(default=None, max_length=100)
 
 
 class AaSettlementExpenseRequest(BaseModel):

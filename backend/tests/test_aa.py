@@ -783,3 +783,48 @@ def test_large_aa_refund_requires_separate_demo_verification(client):
     })
     assert verified.status_code == 200, verified.text
     assert confirm(client, prepared).status_code == 200
+
+
+def test_itemized_preview_splits_each_line_in_cents_and_preserves_assignments(client):
+    before = ledger()
+    body = payload(total_yuan="30.00", contact_ids=[LIN, CHEN], itemized_items=[
+        {"description": "共享披萨", "amount_yuan": "9.99", "participant_ids": [LIN, "self"]},
+        {"description": "陈晨饮料", "amount_yuan": "20.01", "participant_ids": [CHEN]},
+    ])
+    response = client.post("/api/aa/preview", json=body)
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    assert plan["allocation_method"] == "itemized"
+    assert [money(row["amount_yuan"]) for row in plan["participants"]] == [500, 499, 2001]
+    assert [row["participant_ids"] for row in plan["itemized_items"]] == [["self", LIN], [CHEN]]
+    assert [[entry["amount_cents"] for entry in row["allocations"]] for row in plan["itemized_items"]] == [[500, 499], [2001]]
+    assert ledger() == before
+
+
+def test_itemized_plan_is_saved_only_after_confirmation_and_shown_in_collection(client):
+    body = payload(total_yuan="10.01", contact_ids=[LIN], itemized_items=[
+        {"description": "共享主食", "amount_yuan": "10.01", "participant_ids": [LIN, "self"]},
+    ])
+    before = ledger()
+    prepared = client.post("/api/aa/prepare", json=body)
+    assert prepared.status_code == 200, prepared.text
+    action = prepared.json()["pending_action"]
+    assert action["details"]["allocation_method"] == "itemized"
+    assert confirm(client, action).status_code == 200
+    collection = get_collection(client, action["id"])
+    assert collection["allocation_method"] == "itemized"
+    assert collection["itemized_items"][0]["description"] == "共享主食"
+    assert sum(money(row["amount_yuan"]) for row in collection["participants"]) == 1001
+    assert ledger()[0] == before[0]
+
+
+@pytest.mark.parametrize("items", [
+    [{"description": "菜品", "amount_yuan": "9.99", "participant_ids": ["self"]}],
+    [{"description": "菜品", "amount_yuan": "10.00", "participant_ids": ["self", "self"]}],
+    [{"description": "菜品", "amount_yuan": "10.00", "participant_ids": ["unverified"]}],
+    [{"description": "菜品", "amount_yuan": "0.00", "participant_ids": ["self"]}],
+    [{"description": "菜品", "amount_yuan": "10.001", "participant_ids": ["self"]}],
+])
+def test_itemized_preview_rejects_unbalanced_or_invalid_lines(client, items):
+    response = client.post("/api/aa/preview", json=payload(total_yuan="10.00", itemized_items=items))
+    assert response.status_code == 422, response.text

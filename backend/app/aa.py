@@ -164,10 +164,16 @@ def build_preview(conn: sqlite3.Connection, data: dict) -> dict:
                              "contact_fingerprint": contact_fingerprint(row)})
     shares = data.get("shares_yuan")
     ratios = data.get("shares_ratio")
-    if shares is not None and ratios is not None:
-        raise HTTPException(422, "金额份额与比例份额不能同时提交")
+    itemized = data.get("itemized_items")
+    if sum(value is not None for value in (shares, ratios, itemized)) > 1:
+        raise HTTPException(422, "均分、比例、手动份额与按菜品分摊不能混合提交")
     share_ratios = None
-    if ratios is not None:
+    normalized_items = None
+    if itemized is not None:
+        amounts, normalized_items = _allocate_itemized(itemized, participants, total)
+        extras = [False] * len(participants)
+        allocation_method = "itemized"
+    elif ratios is not None:
         if set(ratios) != {row["id"] for row in participants}:
             raise HTTPException(422, "按比例分摊时必须为本人及全部参与人提供比例值")
         weights = [ratios[row["id"]] for row in participants]
@@ -207,7 +213,48 @@ def build_preview(conn: sqlite3.Connection, data: dict) -> dict:
             "note": (data.get("note") or "AA 分摊")[:100], "source_transaction": source,
             "source_type": "ledger" if source else "user", "participants": participants,
             "allocation_method": allocation_method, "share_ratios": share_ratios,
+            "itemized_items": normalized_items,
             "reminder_on": (date.fromisoformat(business_date(conn)) + timedelta(days=3)).isoformat()}
+
+
+def _allocate_itemized(items: list[dict], participants: list[dict], total_cents: int) -> tuple[list[int], list[dict]]:
+    if not isinstance(items, list) or not 1 <= len(items) <= 100:
+        raise HTTPException(422, "按菜品分摊须提供 1–100 条明细")
+    participant_ids = [person["id"] for person in participants]
+    participant_index = {participant_id: index for index, participant_id in enumerate(participant_ids)}
+    amounts = [0] * len(participants)
+    normalized = []
+    item_total = 0
+    for item in items:
+        description = (item.get("description") or "").strip()
+        if not description or len(description) > 80:
+            raise HTTPException(422, "每道菜名须为 1–80 个字符")
+        try:
+            cents = share_cents(item.get("amount_yuan"))
+        except HTTPException:
+            raise HTTPException(422, "每道菜金额须为正数且精确到分") from None
+        if cents <= 0:
+            raise HTTPException(422, "每道菜金额须为正数且精确到分")
+        selected = item.get("participant_ids")
+        if (not isinstance(selected, list) or not 1 <= len(selected) <= len(participants)
+                or len(set(selected)) != len(selected)
+                or any(participant_id not in participant_index for participant_id in selected)):
+            raise HTTPException(422, "每道菜须选择至少一位、不重复的本次参与人")
+        selected = sorted(selected, key=participant_index.__getitem__)
+        base, remainder = divmod(cents, len(selected))
+        allocations = []
+        for position, participant_id in enumerate(selected):
+            share = base + (position < remainder)
+            amounts[participant_index[participant_id]] += share
+            allocations.append({"participant_id": participant_id,
+                                "name": participants[participant_index[participant_id]]["name"],
+                                "amount_cents": share, "amount_yuan": money(share)})
+        item_total += cents
+        normalized.append({"description": description, "amount_cents": cents, "amount_yuan": money(cents),
+                           "participant_ids": selected, "allocations": allocations})
+    if item_total != total_cents:
+        raise HTTPException(422, f"菜品明细合计须等于垫付总额，当前相差 ¥{money(total_cents - item_total)}")
+    return amounts, normalized
 
 
 def preview(data: dict) -> dict:
@@ -230,7 +277,9 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
     data = {"total_yuan": payload["total_yuan"], "include_self": True, "note": payload["note"],
             "contact_ids": [person["id"] for person in people if person["id"] != "self"],
             "source_transaction_id": (payload["source_transaction"] or {}).get("id")}
-    if payload["allocation_method"] == "proportional":
+    if payload["allocation_method"] == "itemized":
+        data["itemized_items"] = payload.get("itemized_items")
+    elif payload["allocation_method"] == "proportional":
         data["shares_ratio"] = payload["share_ratios"]
     elif payload["allocation_method"] == "manual":
         data["shares_yuan"] = {person["id"]: person["amount_yuan"] for person in people}
@@ -245,6 +294,8 @@ def create_collection(conn: sqlite3.Connection, action_id: str, session_id: str,
         raise HTTPException(409, "演示日期已变化，请重新核对站内提醒日期")
     if payload["allocation_method"] != fresh["allocation_method"] or payload["share_ratios"] != fresh["share_ratios"]:
         raise HTTPException(409, "分摊方式或比例已变化，请重新核对计划")
+    if payload.get("itemized_items") != fresh.get("itemized_items"):
+        raise HTTPException(409, "菜品明细或承担人已变化，请重新核对计划")
     if (payload["total_cents"] != fresh["total_cents"] or payload["self_yuan"] != fresh["self_yuan"]
             or payload["receivable_yuan"] != fresh["receivable_yuan"]
             or any(a["amount_cents"] != b["amount_cents"] for a, b in zip(people, fresh["participants"]))):
@@ -355,6 +406,7 @@ def public_collection(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     return {"id": row["id"], "status": row["status"], "created_at": row["created_at"], "closed_at": row["closed_at"],
             **{key: payload[key] for key in ("note", "total_yuan", "self_yuan", "receivable_yuan", "source_transaction", "source_type")},
             "allocation_method": payload.get("allocation_method"), "share_ratios": payload.get("share_ratios"),
+            "itemized_items": payload.get("itemized_items"),
             "received_yuan": money(received), "refunded_yuan": money(refunded),
             "net_received_yuan": money(received - refunded), "outstanding_yuan": money(target - received),
             "net_advance_yuan": money(payload["total_cents"] - received + refunded), "participants": participants}

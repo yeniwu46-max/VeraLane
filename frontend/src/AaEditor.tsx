@@ -3,6 +3,7 @@ import { AaAllocation } from './AaAllocation'
 import { aaCents, aaMoney, aaRequest, type AaAction, type AaContact, type AaDraft, type AaFormPayload, type AaPreview, type AaReply, type AaSeed } from './aaApi'
 
 type ParticipantRow = { key: string; contactId: string; name: string }
+type ItemizedRow = { key: string; description: string; amount_yuan: string; participant_ids: string[] }
 const rowsFromDraft = (draft?: AaDraft): ParticipantRow[] => draft?.participants.map((row) => ({ key: crypto.randomUUID(), contactId: row.contact_id || '', name: row.name })) || []
 
 export function AaEditor({ sessionId, contacts, seed, onCreated }: {
@@ -24,7 +25,8 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
   const [preview, setPreview] = useState<AaPreview | null>(null)
   const [shares, setShares] = useState<Record<string, string>>({})
   const [ratioValues, setRatioValues] = useState<Record<string, string>>({})
-  const [allocationMode, setAllocationMode] = useState<'equal' | 'proportional' | 'manual'>('equal')
+  const [allocationMode, setAllocationMode] = useState<'equal' | 'proportional' | 'manual' | 'itemized'>('equal')
+  const [itemizedRows, setItemizedRows] = useState<ItemizedRow[]>([])
   const [action, setAction] = useState<AaAction | null>(null)
   const [reviewed, setReviewed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -34,6 +36,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
   function invalidate() { setPreview(null); setAction(null); setReviewed(false); setReviewAcknowledged(false); setError(''); setNotice('') }
   function payload(custom = false, method = allocationMode): AaFormPayload {
     const base = { session_id: sessionId, total_yuan: total.trim(), contact_ids: rows.map((row) => row.contactId), include_self: includeSelf, note: note.trim(), source_transaction_id: source?.id || null }
+    if (method === 'itemized') return { ...base, itemized_items: itemizedRows.map(({ description, amount_yuan, participant_ids }) => ({ description: description.trim(), amount_yuan: amount_yuan.trim(), participant_ids })) }
     if (method === 'proportional') return { ...base, shares_ratio: Object.fromEntries(['self', ...rows.map((row) => row.contactId)].map((id) => [id, Number(ratioValues[id] ?? '1')])) }
     if (custom && method === 'manual') return { ...base, shares_yuan: shares }
     return base
@@ -52,6 +55,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       setRequiresCustom(draft.requires_custom_shares)
       setNeedsReview(draft.needs_review); setReviewAcknowledged(false)
       setAllocationMode('equal'); setRatioValues({})
+      setItemizedRows([])
     } catch (cause) { setError(cause instanceof Error ? cause.message : '理解分账需求失败') }
     finally { setBusy(false) }
   }
@@ -86,6 +90,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       setAction(null); setPreview(null); setReviewed(false); setNotice(result.message)
       setTotal(''); setRows([]); setSource(null); setNeedsReview([]); setHasConversation(false); setMessage(''); setIncludeSelf(false); setRequiresCustom(false)
       setAllocationMode('equal'); setRatioValues({})
+      setItemizedRows([])
       onCreated(result.collection_id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : '建立收款单失败') }
     finally { setBusy(false) }
@@ -94,9 +99,27 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
     invalidate()
     setRows((current) => { const next = [...current]; [next[index], next[index + offset]] = [next[index + offset], next[index]]; return next })
   }
+  function chooseAllocationMode(mode: 'equal' | 'proportional' | 'itemized') {
+    invalidate()
+    setAllocationMode(mode)
+    if (mode === 'itemized' && !itemizedRows.length) {
+      setItemizedRows([{ key: crypto.randomUUID(), description: '餐费', amount_yuan: total.trim(), participant_ids: ['self', ...rows.map((row) => row.contactId).filter(Boolean)] }])
+    }
+    if (mode === 'proportional') setRatioValues((current) => Object.fromEntries(['self', ...rows.map((row) => row.contactId)].map((id) => [id, current[id] ?? '1'])))
+  }
+  function addItemizedRow() {
+    invalidate()
+    setItemizedRows((current) => [...current, { key: crypto.randomUUID(), description: '', amount_yuan: '', participant_ids: ['self', ...rows.map((row) => row.contactId).filter(Boolean)] }])
+  }
+  const itemTotalCents = itemizedRows.reduce<number | null>((sum, item) => {
+    const cents = aaCents(item.amount_yuan)
+    return sum === null || cents === null ? null : sum + cents
+  }, 0)
+  const allowedIds = new Set(['self', ...rows.map((row) => row.contactId).filter(Boolean)])
+  const validItems = itemizedRows.length > 0 && itemizedRows.length <= 100 && itemizedRows.every((item) => item.description.trim().length > 0 && item.description.trim().length <= 80 && (aaCents(item.amount_yuan) || 0) > 0 && item.participant_ids.length > 0 && new Set(item.participant_ids).size === item.participant_ids.length && item.participant_ids.every((id) => allowedIds.has(id)))
   const ratioEntries = ['self', ...rows.map((row) => row.contactId)].map((id) => ratioValues[id] ?? '1')
   const validRatios = allocationMode !== 'proportional' || (ratioEntries.every((value) => /^(0|[1-9]\d{0,6})$/.test(value)) && ratioEntries.some((value) => Number(value) > 0))
-  const canCalculate = includeSelf && rows.length > 0 && rows.every((row) => row.contactId) && new Set(rows.map((row) => row.contactId)).size === rows.length && (aaCents(total) || 0) > 0 && (!needsReview.length || reviewAcknowledged) && validRatios
+  const canCalculate = includeSelf && rows.length > 0 && rows.every((row) => row.contactId) && new Set(rows.map((row) => row.contactId)).size === rows.length && (aaCents(total) || 0) > 0 && (!needsReview.length || reviewAcknowledged) && validRatios && (allocationMode !== 'itemized' || (validItems && itemTotalCents === aaCents(total)))
   return <section className="aa-editor" aria-labelledby="aa-editor-heading" aria-busy={busy}>
     <header className="aa-section-head"><div><h2 id="aa-editor-heading">一起消费，分得清楚</h2><p>描述垫付金额和参与者，核对后生成 AA 收款单。</p></div><span className="aa-step">01 / 分账</span></header>
     {source && <div className="aa-source"><div><strong>已引用原始支出 · {source.counterparty}</strong><span>{source.posted_on} · {aaMoney(source.amount_yuan)} · {source.id}</span></div><button type="button" className="aa-quiet" disabled={busy} onClick={() => { invalidate(); setSource(null); setHasConversation(false); setMessage(''); setNeedsReview([]) }}>移除引用</button></div>}
@@ -113,13 +136,25 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
       <div className="aa-section-head aa-participant-heading"><h3>其他参与人 <span>{rows.length} 人</span></h3><button type="button" className="aa-quiet" disabled={rows.length >= contacts.length} onClick={() => { invalidate(); setRows((current) => [...current, { key: crypto.randomUUID(), contactId: '', name: '' }]) }}>＋ 添加参与人</button></div>
       {!rows.length && <p className="aa-caption">添加至少一位联系人；同名联系人需要核对手机号。</p>}
       <div className="aa-participant-list">{rows.map((row, index) => <div className="aa-participant" key={row.key}>
-        <span className="aa-order">{index + 2}</span><label><span>{row.name && !row.contactId ? `请确认：${row.name}` : `参与人 ${index + 1}`}</span><select aria-label={`AA参与人${index + 1}`} value={row.contactId} onChange={(event) => { invalidate(); const selected = contacts.find((contact) => contact.id === event.target.value); setRows((current) => current.map((item) => item.key === row.key ? { ...item, contactId: event.target.value, name: selected?.name || '' } : item)) }}><option value="">{row.name ? `选择 ${row.name} 对应的联系人` : '请选择联系人'}</option>{contacts.map((contact) => <option key={contact.id} value={contact.id} disabled={rows.some((other) => other.key !== row.key && other.contactId === contact.id)}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
-        <div className="aa-row-controls"><button type="button" className="aa-icon-button" disabled={index === 0} aria-label={`上移参与人${index + 1}`} onClick={() => moveRow(index, -1)}>↑</button><button type="button" className="aa-icon-button" disabled={index === rows.length - 1} aria-label={`下移参与人${index + 1}`} onClick={() => moveRow(index, 1)}>↓</button><button type="button" className="aa-icon-button" aria-label={`移除参与人${index + 1}`} onClick={() => { invalidate(); setRows((current) => current.filter((item) => item.key !== row.key)) }}>×</button></div>
+        <span className="aa-order">{index + 2}</span><label><span>{row.name && !row.contactId ? `请确认：${row.name}` : `参与人 ${index + 1}`}</span><select aria-label={`AA参与人${index + 1}`} value={row.contactId} onChange={(event) => { invalidate(); const selected = contacts.find((contact) => contact.id === event.target.value); const nextRows = rows.map((item) => item.key === row.key ? { ...item, contactId: event.target.value, name: selected?.name || '' } : item); setRows(nextRows); const nextIds = new Set(['self', ...nextRows.map((item) => item.contactId).filter(Boolean)]); setItemizedRows((current) => current.map((item) => ({ ...item, participant_ids: item.participant_ids.filter((id) => nextIds.has(id)) }))) }}><option value="">{row.name ? `选择 ${row.name} 对应的联系人` : '请选择联系人'}</option>{contacts.map((contact) => <option key={contact.id} value={contact.id} disabled={rows.some((other) => other.key !== row.key && other.contactId === contact.id)}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
+        <div className="aa-row-controls"><button type="button" className="aa-icon-button" disabled={index === 0} aria-label={`上移参与人${index + 1}`} onClick={() => moveRow(index, -1)}>↑</button><button type="button" className="aa-icon-button" disabled={index === rows.length - 1} aria-label={`下移参与人${index + 1}`} onClick={() => moveRow(index, 1)}>↓</button><button type="button" className="aa-icon-button" aria-label={`移除参与人${index + 1}`} onClick={() => { invalidate(); const nextRows = rows.filter((item) => item.key !== row.key); setRows(nextRows); const nextIds = new Set(['self', ...nextRows.map((item) => item.contactId).filter(Boolean)]); setItemizedRows((current) => current.map((item) => ({ ...item, participant_ids: item.participant_ids.filter((id) => nextIds.has(id)) }))) }}>×</button></div>
       </div>)}</div>
       <div className="aa-allocation-modes" role="group" aria-label="分摊方式">
-        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'equal'} disabled={busy} onClick={() => { invalidate(); setAllocationMode('equal') }}>均分</button>
-        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'proportional'} disabled={busy} onClick={() => { invalidate(); setAllocationMode('proportional'); setRatioValues((current) => Object.fromEntries(['self', ...rows.map((row) => row.contactId)].map((id) => [id, current[id] ?? '1']))) }}>按比例</button>
+        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'equal'} disabled={busy} onClick={() => chooseAllocationMode('equal')}>均分</button>
+        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'proportional'} disabled={busy} onClick={() => chooseAllocationMode('proportional')}>按比例</button>
+        <button type="button" className="aa-quiet" aria-pressed={allocationMode === 'itemized'} disabled={busy} onClick={() => chooseAllocationMode('itemized')}>按菜品</button>
       </div>
+      {allocationMode === 'itemized' && <div className="aa-itemized" aria-label="按菜品分账明细">
+        <div className="aa-section-head"><div><h3>菜品与参与人</h3><p>每道菜分别选择用餐人；余数按参与人顺序分到每一分。</p></div><button type="button" className="aa-quiet" disabled={busy || itemizedRows.length >= 100} onClick={addItemizedRow}>＋ 添加菜品</button></div>
+        {itemizedRows.map((item, index) => <article className="aa-itemized-line" key={item.key}>
+          <div className="aa-itemized-line__top"><strong>菜品 {index + 1}</strong><button type="button" className="aa-icon-button" aria-label={`删除菜品${index + 1}`} disabled={busy || itemizedRows.length <= 1} onClick={() => { invalidate(); setItemizedRows((current) => current.filter((row) => row.key !== item.key)) }}>×</button></div>
+          <div className="aa-field-pair"><label>菜品名称<input aria-label={`菜品${index + 1}名称`} maxLength={80} value={item.description} disabled={busy} placeholder="例如：披萨" onChange={(event) => { invalidate(); setItemizedRows((current) => current.map((row) => row.key === item.key ? { ...row, description: event.target.value } : row)) }} /></label><label>金额（元）<input aria-label={`菜品${index + 1}金额`} inputMode="decimal" maxLength={15} value={item.amount_yuan} disabled={busy} placeholder="例如 68.00" onChange={(event) => { invalidate(); setItemizedRows((current) => current.map((row) => row.key === item.key ? { ...row, amount_yuan: event.target.value } : row)) }} /></label></div>
+          <div className="aa-itemized-participants" role="group" aria-label={`菜品${index + 1}参与人`}>
+            {[{ id: 'self', name: '我（本人）' }, ...rows.map((row, rowIndex) => ({ id: row.contactId, name: contacts.find((contact) => contact.id === row.contactId)?.name || `参与人 ${rowIndex + 1}` }))].map((person) => <label key={person.id || person.name} className="review-check"><input type="checkbox" checked={item.participant_ids.includes(person.id)} disabled={busy || !person.id} onChange={(event) => { invalidate(); setItemizedRows((current) => current.map((row) => row.key === item.key ? { ...row, participant_ids: event.target.checked ? [...row.participant_ids, person.id] : row.participant_ids.filter((id) => id !== person.id) } : row)) }} /><span>{person.name}</span></label>)}
+          </div>
+        </article>)}
+        <p className={`aa-itemized-total${itemTotalCents !== aaCents(total) ? ' aa-warning-text' : ''}`} role="status">明细合计 {itemTotalCents === null ? '—' : aaMoney((itemTotalCents / 100).toFixed(2))} / 垫付总额 {aaMoney(total)}{itemTotalCents === aaCents(total) ? ' · 金额一致' : ' · 请调整至一致'}</p>
+      </div>}
       {allocationMode === 'proportional' && <div className="aa-ratio-list"><p>输入每个人的权重，例如 1 : 2 : 3；系统按权重计算金额并展示到分结果。</p>
         {[{ id: 'self', name: '我（本人）' }, ...rows.map((row, index) => ({ id: row.contactId, name: contacts.find((contact) => contact.id === row.contactId)?.name || `参与人 ${index + 1}` }))].map((person) => <label key={person.id}>{person.name}<input type="number" min="0" max="1000000" step="1" inputMode="numeric" value={ratioValues[person.id] ?? '1'} disabled={busy} onChange={(event) => { invalidate(); setRatioValues((current) => ({ ...current, [person.id]: event.target.value })) }} /></label>)}
       </div>}

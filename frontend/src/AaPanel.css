@@ -52,6 +52,23 @@
 .aa-ratio-list p { grid-column: 1 / -1; margin: 0; color: var(--vl-muted); font-size: 11px; line-height: 1.6; }
 .aa-ratio-list label { color: var(--vl-muted); font-size: 11px; }
 .aa-ratio-list input { display: block; width: 100%; min-height: 38px; margin-top: 6px; padding: 7px 9px; border: 1px solid #4b6689; border-radius: 5px; background: #0e1c2e; color: var(--vl-ink); font: inherit; }
+.aa-itemized { display: grid; gap: 12px; margin-top: 14px; }
+.aa-itemized > .aa-section-head { align-items: center; margin: 0; }
+.aa-itemized > .aa-section-head h3 { margin: 0; color: var(--vl-ink); font-size: 14px; }
+.aa-itemized > .aa-section-head p { margin: 5px 0 0; color: var(--vl-muted); font-size: 11px; line-height: 1.6; }
+.aa-itemized-line { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--vl-line); border-radius: 6px; background: #102137; }
+.aa-itemized-line__top { display: flex; justify-content: space-between; align-items: center; color: var(--vl-ink); font-size: 12px; }
+.aa-itemized-participants { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.aa-itemized-participants .review-check { margin: 0; }
+.aa-itemized-total { margin: 0; color: var(--vl-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.aa-itemized-preview { display: grid; gap: 8px; margin: 18px 0; padding: 14px; border: 1px solid var(--vl-line); border-radius: 6px; background: #102137; }
+.aa-itemized-preview h4 { margin: 0; color: var(--vl-ink); font-size: 12px; }
+.aa-itemized-preview article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; padding: 10px 0; border-top: 1px solid var(--vl-line); }
+.aa-itemized-preview article > div strong, .aa-itemized-preview article > div small { display: block; }
+.aa-itemized-preview article > div strong { color: var(--vl-ink); font-size: 12px; }
+.aa-itemized-preview article > div small, .aa-itemized-preview li { color: var(--vl-muted); font-size: 11px; line-height: 1.6; }
+.aa-itemized-preview article > strong { color: var(--vl-ink); font-size: 12px; }
+.aa-itemized-preview ul { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0; margin: 0; list-style: none; }
 .aa-review-note { padding: 12px 16px; margin-top: 16px; background: #332d2b; border: 1px solid #705b40; border-radius: 6px; }
 .aa-review-note ul { padding-left: 16px; margin: 0 0 12px; color: #e7c594; font-size: 12px; line-height: 1.8; }
 .aa-calculate, .aa-prepare { display: inline-flex; width: auto; min-width: 180px; margin-top: 20px; padding-inline: 20px; }

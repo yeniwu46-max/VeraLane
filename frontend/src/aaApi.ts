@@ -19,8 +19,9 @@ export type AaPreview = {
   source_transaction: AaSource | null
   source_type: 'ledger' | 'user'
   reminder_on: string
-  allocation_method: 'equal' | 'proportional' | 'manual'
+  allocation_method: 'equal' | 'proportional' | 'manual' | 'itemized'
   share_ratios: Record<string, number> | null
+  itemized_items: { description: string; amount_cents: number; amount_yuan: string; participant_ids: string[]; allocations: { participant_id: string; name: string; amount_cents: number; amount_yuan: string }[] }[] | null
   participants: { id: string; name: string; phone_masked: string; amount_yuan: string; rounding_extra: boolean; share_ratio: number | null }[]
 }
 export type AaAction = { id: string; type: 'aa_collection'; tier: 'yellow' | 'red'; status: 'pending'; expires_at: string; details: AaPreview }
@@ -28,8 +29,9 @@ export type AaReply = { session_id: string; message: string; mode: 'offline' | '
 export type AaCollection = {
   id: string
   status: 'pending' | 'partial' | 'completed' | 'closed'
-  allocation_method: 'equal' | 'proportional' | 'manual' | null
+  allocation_method: 'equal' | 'proportional' | 'manual' | 'itemized' | null
   share_ratios: Record<string, number> | null
+  itemized_items: AaPreview['itemized_items']
   note: string
   total_yuan: string
   self_yuan: string
@@ -56,6 +58,7 @@ export type AaCollections = { collections: AaCollection[]; demo_controls_enabled
 export type AaFormPayload = {
   session_id: string; total_yuan: string; contact_ids: string[]; include_self: boolean; note: string
   source_transaction_id: string | null; shares_yuan?: Record<string, string>; shares_ratio?: Record<string, number>
+  itemized_items?: { description: string; amount_yuan: string; participant_ids: string[] }[]
 }
 export type AaSeed = { id: string; draft?: AaDraft; source?: AaSource; message?: string; mode?: 'offline' | 'deepseek' }
 
