@@ -485,6 +485,7 @@ _TRANSFER_HISTORY_STATUS_QUESTION = re.compile(
     r"|(?:转账|转给|转过|汇给|打给|转出|转入).{0,24}(?:失败|拒绝|成功|没到账|未到账|到账).{0,8}(?:吗|没有|没|原因|怎么|为何|为什么)"
 )
 _UNSUPPORTED_HISTORY_PERIOD = re.compile(
+    r"上上周|上周(?:末|[一二三四五六日天])|上上个月|上上月|前[一二两\d]+周|前[一二两\d]+个月|"
     r"这周|本周|下周|明天|后天|未来|最近|近\s*[一二三四五六七八九十两\d]+|过去|下个月|"
     r"本周以来|今年以来|去年以来"
 )
@@ -639,7 +640,7 @@ def _query_transfer_history(
 
 def _transfer_history_period(text: str, demo_day: date) -> dict[str, str] | None:
     """Return a conservative inclusive date range for supported history periods."""
-    if re.search(r"上周", text):
+    if re.search(r"(?<!上)上周(?!末|[一二三四五六日天])", text):
         current_week_start = demo_day - timedelta(days=demo_day.weekday())
         end = current_week_start - timedelta(days=1)
         start = end - timedelta(days=6)
@@ -653,7 +654,7 @@ def _transfer_history_period(text: str, demo_day: date) -> dict[str, str] | None
         start = demo_day - timedelta(days=days - 1)
         return {"label": relative_days[0].strip(), "start": start.isoformat(), "end": demo_day.isoformat()}
 
-    if re.search(r"上个月|上月", text):
+    if re.search(r"(?<!上)上个月|(?<!上)上月", text):
         month = demo_day.month - 1
         year = demo_day.year
         if month == 0:

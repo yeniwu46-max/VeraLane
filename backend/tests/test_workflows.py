@@ -120,7 +120,10 @@ def test_transfer_history_query_applies_supported_relative_period(client):
 def test_transfer_history_query_clarifies_unsupported_relative_period(client):
     for question in ("查一下最近转给林悦300元的记录", "查一下近三个月转给林悦300元的记录",
                      "查一下最近91天转给林悦300元的记录", "查一下未来5天转账记录",
-                     "查一下下周转账记录"):
+                     "查一下下周转账记录", "查一下上上周转账记录", "查一下上周末转账记录",
+                     "查一下上周一转账记录", "查一下上上个月转账记录", "查一下上上月转账记录",
+                     "查一下前两周转账记录",
+                     "查一下前两个月转账记录"):
         result = send(client, question)
         assert "pending_action" not in result
         assert result["transaction_query"]["needs_clarification"] is True
