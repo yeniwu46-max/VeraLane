@@ -92,6 +92,8 @@ AA 金额单位为分。系统仅创建请求，不从付款人账户扣款；�
 
 ## 5. 状态、授权与恢复
 
+风险分级阈值、challenge 状态机和源码/测试证据见[权限分级实现说明](权限分级实现说明.md)。
+
 ```text
 查询/解析 → draft/needs_clarification → 固定工具校验 → awaiting_confirmation
   →（红级挑战验证）→ 再核对余额/对象/价格/版本 → 同事务执行 → receipt
