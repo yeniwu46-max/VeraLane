@@ -91,6 +91,35 @@ def test_transfer_history_query_preserves_an_unfinished_transfer_draft(client):
     assert completed["pending_action"]["details"]["amount_yuan"] == "300.00"
 
 
+def test_transfer_history_query_applies_supported_relative_period(client):
+    with db.db_session() as conn:
+        conn.executemany(
+            "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note) "
+            "VALUES (?, ?, ?, 'out', ?, '林悦', '转账', '')",
+            [
+                ("tx-history-aug", db.ACCOUNT_ID, "2026-08-20", 30000),
+                ("tx-history-sep", db.ACCOUNT_ID, "2026-09-20", 30000),
+                ("tx-history-2025", db.ACCOUNT_ID, "2025-08-20", 30000),
+            ],
+        )
+    result = send(client, "查一下上个月转给林悦300元的记录")
+    ids = [row["id"] for row in result["transaction_query"]["transactions"]]
+    assert ids == ["tx-history-aug"]
+    assert "上个月" in result["message"]
+    year_result = send(client, "查一下2025年转给林悦300元的记录")
+    assert [row["id"] for row in year_result["transaction_query"]["transactions"]] == ["tx-history-2025"]
+
+
+def test_transfer_history_query_clarifies_unsupported_relative_period(client):
+    for question in ("查一下上周转给林悦300元的记录", "查一下近三个月转给林悦300元的记录"):
+        result = send(client, question)
+        assert "pending_action" not in result
+        assert result["transaction_query"]["needs_clarification"] is True
+        assert "暂时不能可靠地解析" in result["message"]
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM audit WHERE event='transfer_history_queried'").fetchone()[0] == 0
+
+
 def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
     balance = client.get("/api/overview").json()["account"]["balance_yuan"]
     result = send(client, "不要转给林悦100元")

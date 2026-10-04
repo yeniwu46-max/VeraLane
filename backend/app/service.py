@@ -258,6 +258,7 @@ _TRANSFER_HISTORY_MARKER = re.compile(
     r"查|查询|核对|记录|历史|失败|成功|转过|转了|有没有|是否|吗|不记得|没到账|未到账"
 )
 _TRANSFER_HISTORY_VERB = re.compile(r"转账|转给|转过|转了|汇给|打给|转出|转入")
+_UNSUPPORTED_HISTORY_PERIOD = re.compile(r"上周|这周|本周|最近|近\s*[一二三四五六七八九十两\d]+|过去|下个月|本周以来|今年以来|去年以来")
 
 
 def _is_transfer_history_query(text: str) -> bool:
@@ -279,6 +280,23 @@ def _query_transfer_history(
             session_id, "offline", transaction_query={"type": "transfer_history", "transactions": []},
         )
 
+    if _UNSUPPORTED_HISTORY_PERIOD.search(text):
+        return reply(
+            "我暂时不能可靠地解析这个相对时间范围。请指定“本月”“上个月”“今年”“去年”、明确年月（如“2026年8月”）或明确日期。",
+            session_id, "offline",
+            transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+        )
+
+    with db_session() as conn:
+        demo_day = date.fromisoformat(business_date(conn))
+    period = _transfer_history_period(text, demo_day)
+    if period and "error" in period:
+        return reply(
+            "查询中的日期无效。请指定有效的“2026年8月”或 YYYY-MM-DD 日期。",
+            session_id, "offline",
+            transaction_query={"type": "transfer_history", "transactions": [], "needs_clarification": True},
+        )
+
     clauses = ["account_id = ?", "direction = 'out'", "category IN ('转账','AA结算')"]
     params: list[Any] = [ACCOUNT_ID]
     if recipient:
@@ -287,6 +305,9 @@ def _query_transfer_history(
     if amount_cents is not None:
         clauses.append("amount_cents = ?")
         params.append(amount_cents)
+    if period:
+        clauses.extend(("posted_on >= ?", "posted_on <= ?"))
+        params.extend((period["start"], period["end"]))
 
     with db_session() as conn:
         rows = conn.execute(
@@ -298,6 +319,7 @@ def _query_transfer_history(
         audit(conn, session_id, "transfer_history_queried", {
             "recipient_filtered": recipient is not None,
             "amount_filtered": amount_cents is not None,
+            "period": period["label"] if period else None,
             "transaction_ids": [row["id"] for row in rows],
         })
 
@@ -310,7 +332,10 @@ def _query_transfer_history(
             + (f"｜备注：{row['note']}" if row["note"] else "")
             for row in transactions
         )
-        prefix = f"在模拟账户的已入账转账流水中找到 {len(transactions)} 笔：\n{details}"
+        period_text = f"（{period['label']}）" if period else ""
+        prefix = f"在模拟账户的已入账转账流水中找到 {len(transactions)} 笔{period_text}：\n{details}"
+        if len(transactions) == 50:
+            prefix += "\n仅展示最近 50 笔匹配记录。"
         if recipient == "王明":
             prefix += "\n备注：通讯录中有重名联系人，流水只保存显示姓名，无法据此区分具体手机号或收款账户。"
         suffix = "这些记录只能证明模拟账本已记账，不能证明外部银行或收款人实际到账。"
@@ -320,16 +345,72 @@ def _query_transfer_history(
     else:
         who = f"给{recipient}" if recipient else ""
         amount = f" ¥{money(amount_cents)}" if amount_cents is not None else ""
+        period_text = f"{period['label']}期间" if period else ""
         message = (
-            f"模拟账户的已入账转账流水中没有找到{who}{amount}的匹配记录。"
+            f"模拟账户的已入账转账流水中没有找到{period_text}{who}{amount}的匹配记录。"
             "这不代表外部银行操作失败或收款人未到账；我这里只能核对本地模拟账本。"
         )
         if re.search(r"失败|没到账|未到账", text):
             message += "未入账操作的失败状态和原因不在这份流水中。"
     return reply(
         message, session_id, "offline",
-        transaction_query={"type": "transfer_history", "transactions": transactions},
+        transaction_query={
+            "type": "transfer_history", "transactions": transactions,
+            "period": period,
+        },
     )
+
+
+def _transfer_history_period(text: str, demo_day: date) -> dict[str, str] | None:
+    """Return a conservative inclusive date range for supported history periods."""
+    if re.search(r"上个月|上月", text):
+        month = demo_day.month - 1
+        year = demo_day.year
+        if month == 0:
+            year -= 1
+            month = 12
+        start = date(year, month, 1)
+        end = date(demo_day.year, demo_day.month, 1) - timedelta(days=1)
+        return {"label": "上个月", "start": start.isoformat(), "end": end.isoformat()}
+    if re.search(r"本月|这个月", text):
+        return {"label": "本月", "start": demo_day.replace(day=1).isoformat(), "end": demo_day.isoformat()}
+    if re.search(r"去年", text):
+        return {"label": "去年", "start": date(demo_day.year - 1, 1, 1).isoformat(),
+                "end": date(demo_day.year - 1, 12, 31).isoformat()}
+    if re.search(r"今年|本年", text):
+        return {"label": "今年", "start": date(demo_day.year, 1, 1).isoformat(),
+                "end": demo_day.isoformat()}
+
+    explicit_day = re.search(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)", text)
+    if explicit_day:
+        try:
+            selected = date(*(int(value) for value in explicit_day.groups()))
+        except ValueError:
+            return {"error": "invalid_date"}
+        return {"label": selected.isoformat(), "start": selected.isoformat(), "end": selected.isoformat()}
+
+    explicit_year = re.search(r"(?<!\d)(\d{4})年(?!\d)", text)
+    if explicit_year:
+        year = int(explicit_year[1])
+        try:
+            return {"label": f"{year}年", "start": date(year, 1, 1).isoformat(),
+                    "end": date(year, 12, 31).isoformat()}
+        except ValueError:
+            return {"error": "invalid_year"}
+
+    explicit_month = re.search(r"(?<!\d)(\d{4})[-/年](\d{1,2})(?:月)?(?!\d)", text)
+    if explicit_month:
+        year, month = (int(value) for value in explicit_month.groups())
+        if not 1 <= month <= 12:
+            return {"error": "invalid_month"}
+        try:
+            start = date(year, month, 1)
+            next_month = date(year + (month == 12), month % 12 + 1, 1)
+        except ValueError:
+            return {"error": "invalid_month"}
+        end = next_month - timedelta(days=1)
+        return {"label": f"{year}年{month}月", "start": start.isoformat(), "end": end.isoformat()}
+    return None
 
 
 def _matching_phone(text: str) -> list[dict[str, str]]:
