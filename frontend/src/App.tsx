@@ -22,11 +22,11 @@ type Tier = 'yellow' | 'red'
 
 type PendingAction = {
   id: string
-  type: 'transfer' | 'scheduled_transfer' | 'subscription_cancel'
+  type: 'transfer' | 'scheduled_transfer' | 'subscription_cancel' | 'bill_budget_upsert'
   tier: Tier
   status: 'pending'
   expires_at: string
-  details: Record<string, string | number>
+  details: Record<string, string | number | null>
 }
 
 type View = 'chat' | 'transfer' | 'bills' | 'subscriptions' | 'tasks' | 'investments' | 'cards'
@@ -175,22 +175,30 @@ function ActionCard({
 }) {
   const isScheduled = action.type === 'scheduled_transfer'
   const isTransfer = action.type === 'transfer' || isScheduled
+  const isBudget = action.type === 'bill_budget_upsert'
   const [reviewed, setReviewed] = useState(false)
   const [verified, setVerified] = useState(false)
   const [verificationBusy, setVerificationBusy] = useState(false)
   const target = isTransfer ? String(action.details.recipient) : String(action.details.merchant)
   const confirmLabel = isScheduled ? `确认预约 ${currency(String(action.details.amount_yuan))}` : isTransfer
     ? `确认模拟转出 ${currency(String(action.details.amount_yuan))}`
+    : isBudget ? `确认保存预算 ${currency(String(action.details.amount_yuan))}`
     : `确认取消 ${target}`
   return (
     <div className={`action-card ${action.tier === 'red' ? 'action-card--red' : ''}`}>
       <div className="action-card__head">
-        <span className="action-card__title">{isScheduled ? '预约转账计划' : isTransfer ? '转账计划' : '取消代扣计划'}</span>
+        <span className="action-card__title">{isScheduled ? '预约转账计划' : isTransfer ? '转账计划' : isBudget ? '月度预算计划' : '取消代扣计划'}</span>
         <span className={`tier tier--${action.tier}`}>
           {action.tier === 'red' ? '强验证' : '需确认'}
         </span>
       </div>
-      {isTransfer ? (
+      {isBudget ? (
+        <dl className="action-card__details">
+          <div><dt>预算月份</dt><dd>{action.details.month}</dd></div>
+          <div><dt>支出范围</dt><dd>{action.details.category || '全部支出'}</dd></div>
+          <div><dt>预算上限</dt><dd className="action-card__amount">{currency(String(action.details.amount_yuan))}</dd></div>
+        </dl>
+      ) : isTransfer ? (
         <dl className="action-card__details">
           <div><dt>收款人</dt><dd>{action.details.recipient} · {action.details.phone_masked}</dd></div>
           <div><dt>金额</dt><dd className="action-card__amount">{currency(String(action.details.amount_yuan))}</dd></div>
@@ -215,7 +223,7 @@ function ActionCard({
             <>
               {action.tier === 'red' && !isScheduled && <DemoVerification actionId={action.id} sessionId={getSessionId()} onVerified={() => setVerified(true)} onReset={() => { setVerified(false); setReviewed(false) }} onBusyChange={setVerificationBusy} disabled={busy || completed} />}
               {verified && <p>已通过当前计划的模拟验证。</p>}
-              <label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /><span>我已核对{isScheduled ? '收款人、金额、备注与执行时间，授权到期自动转账' : isTransfer ? '收款人、金额与备注，同意执行此操作' : '商户及代扣协议，同意执行此操作'}</span></label>
+              <label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /><span>我已核对{isScheduled ? '收款人、金额、备注与执行时间，授权到期自动转账' : isTransfer ? '收款人、金额与备注，同意执行此操作' : isBudget ? '预算月份、支出范围与上限；预算仅用于对照，不会冻结或划转资金' : '商户及代扣协议，同意执行此操作'}</span></label>
               {isScheduled && <p className="schedule-consent">到期后 10 分钟内通过检查后自动执行，无需再次确认；不提前冻结余额。超时或检查失败均不自动重试。</p>}
               <p>待确认计划有效期 10 分钟；执行时会再次检查权限与状态。</p>
             </>

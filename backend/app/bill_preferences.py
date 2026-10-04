@@ -129,17 +129,24 @@ def prepare_budget(session_id: str, month: str, category: str | None, amount_yua
     category_key = _category(category) if category is not None else "*"
     amount = _amount(amount_yuan)
     with db_session() as conn:
-        if month != business_date(conn)[:7]:
-            raise HTTPException(422, "只支持为当前演示月份设置或修改预算")
-        previous = _owned_budget(conn, budget_id, session_id) if budget_id else None
-        duplicate = conn.execute("SELECT id FROM bill_budgets WHERE account_id=? AND session_id=? AND month=? AND category=?", (ACCOUNT_ID, session_id, month, category_key)).fetchone()
-        if duplicate and (not previous or duplicate["id"] != previous["id"]):
-            raise HTTPException(409, "该分类已有本月预算，请编辑原预算")
-        payload = {"budget_id": budget_id or "budget-" + secrets.token_urlsafe(15), "month": month, "category": category,
-                   "amount_cents": amount, "amount_yuan": money(amount), "expected_version": previous["version"] if previous else 0,
-                   "previous": dict(previous) if previous else None}
-        action = create_action(conn, session_id, "bill_budget_upsert", "yellow", payload)
-        return {"mode": "offline", "message": "请确认本月预算。预算只用于对照统计，不冻结或划转资金。", "pending_action": action}
+        return prepare_budget_in_connection(conn, session_id, month, category, amount_yuan, budget_id)
+
+
+def prepare_budget_in_connection(conn: sqlite3.Connection, session_id: str, month: str, category: str | None,
+                                 amount_yuan: str, budget_id: str | None = None) -> dict:
+    category_key = _category(category) if category is not None else "*"
+    amount = _amount(amount_yuan)
+    if month != business_date(conn)[:7]:
+        raise HTTPException(422, "只支持为当前演示月份设置或修改预算")
+    previous = _owned_budget(conn, budget_id, session_id) if budget_id else None
+    duplicate = conn.execute("SELECT id FROM bill_budgets WHERE account_id=? AND session_id=? AND month=? AND category=?", (ACCOUNT_ID, session_id, month, category_key)).fetchone()
+    if duplicate and (not previous or duplicate["id"] != previous["id"]):
+        raise HTTPException(409, "该分类已有本月预算，请编辑原预算")
+    payload = {"budget_id": budget_id or "budget-" + secrets.token_urlsafe(15), "month": month, "category": category,
+               "amount_cents": amount, "amount_yuan": money(amount), "expected_version": previous["version"] if previous else 0,
+               "previous": dict(previous) if previous else None}
+    action = create_action(conn, session_id, "bill_budget_upsert", "yellow", payload)
+    return {"mode": "offline", "message": "请确认本月预算。预算只用于对照统计，不冻结或划转资金。", "pending_action": action}
 
 
 def execute_budget(conn: sqlite3.Connection, action_id: str, session_id: str, payload: dict) -> dict:

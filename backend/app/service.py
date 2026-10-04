@@ -295,6 +295,19 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
             account = conn.execute("SELECT balance_cents FROM accounts WHERE id = ?", (ACCOUNT_ID,)).fetchone()
             set_context(conn, session_id, {})
             return reply(f"日常账户余额为 ¥{money(account['balance_cents'])}，可用余额 ¥{money(available_cents(conn))}，预留 ¥{money(account['balance_cents'] - available_cents(conn))}。数据来自模拟账户。", session_id, parsed.mode)
+        if intent.action == "bill_budget":
+            from .bill_preferences import prepare_budget_in_connection
+            category = intent.budget_category
+            category_key = category or "*"
+            month = business_date(conn)[:7]
+            existing = conn.execute(
+                "SELECT id FROM bill_budgets WHERE account_id=? AND session_id=? AND month=? AND category=?",
+                (ACCOUNT_ID, session_id, month, category_key),
+            ).fetchone()
+            prepared = prepare_budget_in_connection(
+                conn, session_id, month, category, str(intent.amount_yuan), existing["id"] if existing else None,
+            )
+            return reply(prepared["message"], session_id, parsed.mode, pending_action=prepared["pending_action"])
         if intent.action == "bill_summary":
             if re.search(
                 r"餐饮|交通|日用|居住|超过|低于|小于|为什么|变化|增加|减少|异常|重复|上月|商户|"

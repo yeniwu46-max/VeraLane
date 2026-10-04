@@ -314,6 +314,64 @@ def test_read_only_bill_comparison_preserves_pending_transfer_context(client):
     assert completed["pending_action"]["details"]["amount_yuan"] == "300.00"
 
 
+def test_natural_language_category_budget_creates_confirmable_plan_and_updates_existing_budget(client):
+    session_id = "budget-chat-session"
+    original_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+
+    prepared = send(client, "本月餐饮预算控制在1500元", session_id=session_id)
+    action = prepared["pending_action"]
+    assert action["type"] == "bill_budget_upsert"
+    assert action["tier"] == "yellow"
+    assert action["details"]["month"] == "2026-09"
+    assert action["details"]["category"] == "餐饮"
+    assert action["details"]["amount_yuan"] == "1500.00"
+    assert client.get("/api/bill-preferences", params={"session_id": session_id}).json()["budgets"] == []
+
+    first = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": session_id})
+    assert first.status_code == 200
+    budget = client.get("/api/bill-preferences", params={"session_id": session_id}).json()["budgets"][0]
+    assert budget["category"] == "餐饮"
+    assert budget["amount_yuan"] == "1500.00"
+    assert budget["spent_yuan"] == "103.90"
+
+    revised = send(client, "本月餐饮预算调整为1600元", session_id=session_id)["pending_action"]
+    assert revised["type"] == "bill_budget_upsert"
+    assert revised["details"]["budget_id"] == budget["id"]
+    assert revised["details"]["amount_yuan"] == "1600.00"
+    second = client.post(f"/api/actions/{revised['id']}/confirm", json={"session_id": session_id})
+    assert second.status_code == 200
+    updated = client.get("/api/bill-preferences", params={"session_id": session_id}).json()["budgets"][0]
+    assert updated["version"] == 2
+    assert updated["amount_yuan"] == "1600.00"
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
+
+
+def test_natural_language_total_budget_is_supported_but_ambiguous_category_is_not_guessed(client):
+    total = send(client, "本月总预算控制在3000元")
+    assert total["pending_action"]["type"] == "bill_budget_upsert"
+    assert total["pending_action"]["details"]["category"] is None
+    assert total["pending_action"]["details"]["amount_yuan"] == "3000.00"
+
+    ambiguous = send(client, "本月餐饮和交通预算分别设为1000元")
+    assert "pending_action" not in ambiguous
+
+    historical = send(client, "上月餐饮预算设为1200元")
+    assert "pending_action" not in historical
+
+
+def test_natural_language_budget_does_not_erase_incomplete_transfer(client):
+    session_id = "budget-preserves-transfer-session"
+    partial = send(client, "转给林悦", session_id=session_id)
+    assert "pending_action" not in partial
+
+    budget = send(client, "本月餐饮预算控制在1500元", session_id=session_id)
+    assert budget["pending_action"]["type"] == "bill_budget_upsert"
+
+    completed = send(client, "300元", session_id=session_id)
+    assert completed["pending_action"]["type"] == "transfer"
+    assert completed["pending_action"]["details"]["recipient"] == "林悦"
+
+
 def test_bill_exports_include_summary_and_transaction_details(client):
     csv_response = client.get("/api/bills/export", params={"period": "本月", "format": "csv"})
     assert csv_response.status_code == 200
