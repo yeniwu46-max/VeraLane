@@ -60,6 +60,21 @@ def test_negation_withdraws_pending_transfer_action_and_does_not_match_reminders
     assert reminder["pending_action"]["type"] == "transfer"
 
 
+def test_transfer_reminder_preferences_do_not_withdraw_transfer_actions(client):
+    action = send(client, "转给林悦100元")["pending_action"]
+    result = send(client, "我不想收到转账提醒")
+    assert "未发生扣款" not in result["message"]
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+    cancelled = send(client, "取消转账提醒")
+    assert "未发生扣款" not in cancelled["message"]
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+
 def test_negation_clears_partial_transfer_slots_without_cancelling_approved_schedule(client):
     partial = send(client, "转给林悦")
     assert "pending_action" not in partial
