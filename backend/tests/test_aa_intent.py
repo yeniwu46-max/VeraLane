@@ -154,6 +154,7 @@ def test_local_aa_override_reports_rules_source_and_keeps_model_usage(monkeypatc
             return MockResponse()
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "auto")
     monkeypatch.setattr(agent.httpx, "AsyncClient", MockClient)
     result = asyncio.run(agent.parse_intent("我和林悦AA100元", CONTACTS, []))
     assert result.mode == "offline"

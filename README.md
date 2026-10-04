@@ -64,7 +64,7 @@ npm run dev
 
 | 配置 | 含义 |
 | --- | --- |
-| `VERALANE_MODEL_MODE=offline` | 即使配置密钥也不发送模型请求；设为 `auto` 并重启后启用适配器 |
+| `VERALANE_MODEL_MODE=offline` | 默认且显式离线；只有设为 `auto` 才启用外发模型请求。未设置或填错时均保持离线 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | 仅在本机 `.env` 设置，不提交仓库；鉴权失败等情况回退规则 |
 | `DEEPSEEK_MAX_CALLS` / `DEEPSEEK_MAX_TOTAL_TOKENS` | 持久化调用/令牌上限，失败与不确定请求保守计入 |
 | `DEEPSEEK_BUDGET_YUAN` | 配置价格下的估算上限；不是平台账户余额，也不含启用本地账本前的消费 |

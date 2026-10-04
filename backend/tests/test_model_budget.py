@@ -22,6 +22,7 @@ def isolated_accounting(tmp_path, monkeypatch):
         "DEEPSEEK_INPUT_PRICE_PER_MILLION_YUAN", "DEEPSEEK_OUTPUT_PRICE_PER_MILLION_YUAN",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("VERALANE_MODEL_MODE", raising=False)
 
 
 def messages():
@@ -63,6 +64,7 @@ def mock_model(monkeypatch, payload=None, error=None, seen=None):
             return Response()
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-never-store")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "auto")
     monkeypatch.setattr(agent.httpx, "AsyncClient", Client)
 
 
@@ -77,10 +79,38 @@ def parse(message="账户余额"):
 def test_no_key_uses_rules_without_making_accounting_claims():
     result = parse()
     assert result.mode == "offline" and result.usage is None
-    assert result.metadata["fallback_reason"] == "missing_api_key"
+    assert result.metadata["fallback_reason"] == "manual_offline"
     status = budget.get_model_status()
     assert status["usage"]["attempts"] == 0
     assert status["usage"]["estimated_cost_yuan"] is None
+
+
+def test_configured_key_does_not_enable_network_without_explicit_opt_in(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-never-send")
+    monkeypatch.delenv("VERALANE_MODEL_MODE", raising=False)
+    monkeypatch.setattr(agent.httpx, "AsyncClient", lambda **kw: pytest.fail("unexpected network call"))
+    monkeypatch.setattr(agent, "reserve_call", lambda *args: pytest.fail("unexpected billing reservation"))
+
+    result = parse()
+
+    assert result.mode == "offline"
+    assert result.metadata["fallback_reason"] == "manual_offline"
+    assert budget.get_model_status()["mode"] == "offline"
+    assert budget.get_model_status()["reason"] == "manual_offline"
+    assert rows() == []
+
+
+def test_invalid_model_mode_fails_closed(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-never-send")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "autoo")
+    monkeypatch.setattr(agent.httpx, "AsyncClient", lambda **kw: pytest.fail("unexpected network call"))
+
+    result = parse()
+
+    assert result.mode == "offline"
+    assert result.metadata["fallback_reason"] == "invalid_model_mode"
+    assert budget.get_model_status()["reason"] == "invalid_model_mode"
+    assert rows() == []
 
 
 def test_atomic_call_limit_allows_only_one_concurrent_reservation():
@@ -199,6 +229,7 @@ def test_runtime_configuration_is_used_and_safe(monkeypatch):
 ])
 def test_invalid_configuration_fails_closed_without_network(monkeypatch, name, value):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "auto")
     monkeypatch.setenv(name, value)
     result = parse()
     assert result.mode == "offline" and result.metadata["fallback_reason"] == "invalid_model_config"
@@ -207,6 +238,7 @@ def test_invalid_configuration_fails_closed_without_network(monkeypatch, name, v
 
 def test_disabled_call_limit_never_creates_client(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "auto")
     monkeypatch.setenv("DEEPSEEK_MAX_CALLS", "0")
     monkeypatch.setattr(agent.httpx, "AsyncClient", lambda **kw: pytest.fail("unexpected network call"))
     result = parse()
@@ -253,6 +285,7 @@ def test_estimated_price_is_not_provider_account_balance(monkeypatch):
 
 def test_zero_budget_blocks_even_without_prices(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
+    monkeypatch.setenv("VERALANE_MODEL_MODE", "auto")
     monkeypatch.setenv("DEEPSEEK_BUDGET_YUAN", "0")
     result = parse()
     assert result.metadata["fallback_reason"] == "budget_limit"

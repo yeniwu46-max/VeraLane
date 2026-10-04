@@ -81,8 +81,14 @@ async def parse_intent(
     contact_names: list[str],
     subscription_names: list[str],
 ) -> ParseResult:
-    if os.environ.get('VERALANE_MODEL_MODE', 'auto') == 'offline':
-        return ParseResult(intent=offline_intent(message, contact_names, subscription_names), mode='offline', metadata={'fallback_reason':'manual_offline'})
+    model_mode = os.environ.get("VERALANE_MODEL_MODE", "offline").strip().lower()
+    if model_mode != "auto":
+        reason = "manual_offline" if model_mode == "offline" else "invalid_model_mode"
+        return ParseResult(
+            intent=offline_intent(message, contact_names, subscription_names),
+            mode="offline",
+            metadata={"fallback_reason": reason},
+        )
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     reason = "missing_api_key"
     if not key:

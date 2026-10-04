@@ -248,8 +248,9 @@ def get_model_status() -> dict[str, Any]:
         return {"mode": "offline", "reason": "accounting_unavailable", "configured": configured, "notice": NOTICE}
     pricing = config.input_price is not None
     reason = "missing_api_key" if not configured else None
-    if os.environ.get('VERALANE_MODEL_MODE', 'auto') == 'offline':
-        reason = 'manual_offline'
+    model_mode = os.environ.get("VERALANE_MODEL_MODE", "offline").strip().lower()
+    if model_mode != "auto":
+        reason = "manual_offline" if model_mode == "offline" else "invalid_model_mode"
     if reason is None:
         if used["attempts"] >= config.max_calls:
             reason = "call_limit"
