@@ -138,6 +138,71 @@ def decline_transfer_request(session_id: str) -> dict[str, Any]:
     )
 
 
+_SUBSCRIPTION_CANCEL_REFUSAL = re.compile(
+    r"(?:先别|暂时别|暂不|先不|不要|别|不必|不需要|无需|不用).{0,4}(?:取消|关闭|停掉|终止|解约)"
+    r"|不想\s*(?:现在|马上|再)?\s*(?:取消|关闭|停掉|终止|解约)"
+)
+_DEFERRED_SUBSCRIPTION_CANCEL = re.compile(
+    r"(?:下次|下个月|下月|下一次|到期|扣款|扣费|续费).{0,12}(?:后|以后|之后).{0,6}(?:再|才)?(?:取消|关闭|停掉|终止|解约)"
+)
+_FUTURE_SUBSCRIPTION_MARKER = re.compile(r"下次|下个月|下月|下一次|未来|将来|届时|到期")
+
+
+def _has_subscription_cancel_subject(text: str, subscription_names: list[str]) -> bool:
+    return any(word in text for word in ("订阅", "会员", "代扣", "续费", *subscription_names))
+
+
+def _withdraw_subscription_cancellations(
+    session_id: str, text: str, subscription_names: list[str], *, deferred: bool,
+) -> dict[str, Any]:
+    """Clear a refused or unsupported delayed cancellation without touching agreements."""
+    mentioned = [name for name in subscription_names if name in text]
+    with db_session(immediate=True) as conn:
+        context = get_context(conn, session_id)
+        cleared_context = context.pop("pending_cancel", None) is not None
+        pending = conn.execute(
+            "SELECT id, type, payload_json FROM actions WHERE session_id=? "
+            "AND type IN ('subscription_cancel','subscription_batch') AND status='pending'",
+            (session_id,),
+        ).fetchall()
+        invalidated = []
+        for action in pending:
+            payload = json.loads(action["payload_json"])
+            merchants = {payload.get("merchant", "")}
+            merchants.update(item.get("merchant", "") for item in payload.get("items", []))
+            if mentioned and not any(name in merchants for name in mentioned):
+                continue
+            result = {"status": "cancelled", "message": "用户撤回或暂缓了未确认的代扣取消操作，协议仍保持原状态。"}
+            conn.execute(
+                "UPDATE actions SET status='failed', result_json=? WHERE id=? AND status='pending'",
+                (json.dumps(result, ensure_ascii=False), action["id"]),
+            )
+            conn.execute(
+                "UPDATE action_challenges SET status='revoked' WHERE action_id=? AND status IN ('active','verified')",
+                (action["id"],),
+            )
+            invalidated.append(action["id"])
+        set_context(conn, session_id, context)
+        audit(conn, session_id, "subscription_cancel_intent_withdrawn", {
+            "reason": "deferred_request_needs_clarification" if deferred else "explicit_refusal",
+            "pending_cancel_context_cleared": cleared_context,
+            "invalidated_action_ids": invalidated,
+        })
+
+    target_text = "、".join(mentioned)
+    if deferred:
+        target = f"{target_text}协议" if target_text else "该代扣协议"
+        message = f"你表达的是在下次扣款后再取消{target}。系统暂不支持延后自动取消，当前没有执行或保留针对它的立即取消操作，协议仍按原状态生效。若想现在取消，请明确说“现在取消该协议”。"
+    else:
+        if target_text:
+            message = f"收到，不会取消{target_text}协议。针对它的未确认取消操作（若有）已清除；其他协议的待确认操作不受影响。"
+        else:
+            message = "收到，不会取消任何代扣协议。当前会话中未确认的取消草稿和操作已清除，协议仍按原状态生效。"
+    if invalidated:
+        message += f"已使 {len(invalidated)} 项未确认操作失效。"
+    return reply(message, session_id, "offline")
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
     if explicitly_declines_transfer(request_text):
@@ -167,10 +232,20 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
         subscriptions = conn.execute(
             "SELECT merchant FROM subscriptions WHERE user_id = ? AND status = 'active'", (USER_ID,)
         ).fetchall()
+        all_subscriptions = conn.execute(
+            "SELECT merchant FROM subscriptions WHERE user_id = ?", (USER_ID,)
+        ).fetchall()
         context = get_context(conn, session_id)
         now = business_now(conn)
     contact_names = list(dict.fromkeys(row["name"] for row in contacts))
     subscription_names = [row["merchant"] for row in subscriptions]
+    all_subscription_names = list(dict.fromkeys(row["merchant"] for row in all_subscriptions))
+    has_subscription_subject = _has_subscription_cancel_subject(request_text, all_subscription_names)
+    if has_subscription_subject and _SUBSCRIPTION_CANCEL_REFUSAL.search(request_text):
+        return _withdraw_subscription_cancellations(session_id, request_text, all_subscription_names, deferred=False)
+    if (has_subscription_subject and _FUTURE_SUBSCRIPTION_MARKER.search(request_text)
+            and _DEFERRED_SUBSCRIPTION_CANCEL.search(request_text)):
+        return _withdraw_subscription_cancellations(session_id, request_text, all_subscription_names, deferred=True)
     if _is_transfer_history_query(request_text):
         return _query_transfer_history(session_id, request_text, contact_names)
     parsed = await parse_intent(message, contact_names, subscription_names)

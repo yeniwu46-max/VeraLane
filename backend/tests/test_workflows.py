@@ -323,6 +323,47 @@ def test_subscription_cancel_requires_confirmation(client):
     assert next(row for row in subscriptions if row["id"] == "sub-cloud")["status"] == "cancelled"
 
 
+def test_subscription_cancel_refusal_prevents_and_withdraws_pending_action(client):
+    refused = send(client, "先别取消云影会员，只查扣款记录")
+    assert "pending_action" not in refused
+    assert "不会取消" in refused["message"]
+    action = send(client, "取消云影会员自动续费")["pending_action"]
+    refused_again = send(client, "先别取消云影会员")
+    assert "pending_action" not in refused_again
+    rejected = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": "test-session"})
+    assert rejected.status_code == 409
+    subscriptions = client.get("/api/overview").json()["subscriptions"]
+    assert next(row for row in subscriptions if row["id"] == "sub-cloud")["status"] == "active"
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='subscription_cancel' AND status='pending'").fetchone()[0] == 0
+
+
+def test_future_subscription_cancel_is_not_executed_immediately(client):
+    action = send(client, "取消云影会员自动续费")["pending_action"]
+    delayed = send(client, "云影会员下次扣款后再取消")
+    assert "pending_action" not in delayed
+    assert "不支持延后自动取消" in delayed["message"]
+    rejected = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": "test-session"})
+    assert rejected.status_code == 409
+    subscriptions = client.get("/api/overview").json()["subscriptions"]
+    assert next(row for row in subscriptions if row["id"] == "sub-cloud")["status"] == "active"
+
+
+def test_positive_subscription_cancellation_after_renewal_negation_is_preserved(client):
+    result = send(client, "我不想继续订阅云影会员了，请现在取消它")
+    assert result["pending_action"]["type"] == "subscription_cancel"
+
+
+def test_declining_one_subscription_preserves_other_pending_cancellation(client):
+    action = send(client, "取消青柠音乐", session_id="music-session")["pending_action"]
+    with db.db_session() as conn:
+        conn.execute("UPDATE subscriptions SET status='cancelled' WHERE id='sub-cloud'")
+    result = send(client, "先别取消云影会员", session_id="music-session")
+    assert "其他协议的待确认操作不受影响" in result["message"]
+    confirmed = client.post(f"/api/actions/{action['id']}/confirm", json={"session_id": "music-session"})
+    assert confirmed.status_code == 200
+
+
 def test_recurring_subscription_detection_has_transaction_evidence(client):
     signals = client.get("/api/overview").json()["subscription_signals"]
     cloud = next(row for row in signals if row["merchant"] == "云影会员")
