@@ -107,6 +107,7 @@ uv run --frozen --env-file ../.env python -m app.demo_history --database ..\data
 - [安全自评、权限分级与已知风险](docs/安全自评与权限分级.md)
 - [权限分级实现说明](docs/权限分级实现说明.md)
 - [全阶段执行与验证结果](docs/全阶段执行记录.md)
+- [2026-10-05 技术更新记录](docs/技术更新-2026-10-05.md)
 - [2026-10-04 技术更新记录](docs/技术更新-2026-10-04.md)
 - [联网模型小样本原始结果](docs/model-evaluation.json)
 - [周期与批量转账说明](docs/周期与批量转账实现说明.md)

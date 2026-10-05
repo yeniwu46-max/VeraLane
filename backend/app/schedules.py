@@ -121,10 +121,21 @@ def _execute_due(conn: sqlite3.Connection) -> int:
 
 
 def run_due_transfers() -> int:
+    # The background scanner runs frequently. Avoid reserving SQLite's single
+    # writer slot on idle polls, which can make unrelated request transactions
+    # fail while upgrading from a read to a write transaction.
+    from .jobs import pending_events, run_due
+
+    with db_session() as conn:
+        now = business_now(conn)
+        has_due_event = any(datetime.fromisoformat(event["at"]) <= now
+                            for event in pending_events(conn))
+    if not has_due_event:
+        return 0
+
     conn = connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        from .jobs import run_due
         count = run_due(conn)
         conn.commit()
         return count

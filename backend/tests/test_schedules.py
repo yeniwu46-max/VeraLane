@@ -66,6 +66,14 @@ def ledger(action):
         return balance, [dict(row) for row in rows]
 
 
+def test_idle_scheduler_scan_does_not_open_writer_connection(client, monkeypatch):
+    def unexpected_writer_connection():
+        pytest.fail("idle scheduler scan should not open a writer connection")
+
+    monkeypatch.setattr(schedules, "connect", unexpected_writer_connection)
+    assert schedules.run_due_transfers() == 0
+
+
 @pytest.mark.parametrize(("expression", "target"), [
     ("10月6日晚上8点", TARGET),
     ("2026-10-06 20:00", TARGET),
