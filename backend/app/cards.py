@@ -17,6 +17,10 @@ PRODUCTS = [
     {"id": "credit", "name": "Vera 青年信用卡", "condition": "填写虚构月收入；模拟审批仅返回状态，不自动发卡", "fee_yuan": "0.00"},
 ]
 
+_CARD_HELP_CUE = re.compile(r'怎么|如何|怎样|流程|步骤|教程|操作方法')
+_CARD_OPERATION_CUE = re.compile(r'锁卡|冻结|挂失|解锁|找到了|关闭线上|禁止线上|开启线上|恢复线上|支付限额|提额|申请卡')
+_CARD_NEGATION_CUE = re.compile(r'不要|别|不需要|无需|不必|暂时不|先不|先别|暂不|取消|免得')
+
 
 def init_schema(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS cards (
@@ -199,6 +203,12 @@ def execute_payment(conn,aid,sid,payload):
 
 def interpret(sid,message):
     text = re.split(r'备注|用途',message,maxsplit=1)[0]
+    if _CARD_HELP_CUE.search(text) and _CARD_OPERATION_CUE.search(text):
+        return {'status':'needs_clarification','mode':'offline',
+                'message':'这是卡片操作流程咨询，不会创建操作。你可以先选择具体卡片和操作；正式挂失需要单独强验证与确认。'}
+    if _CARD_NEGATION_CUE.search(text) and _CARD_OPERATION_CUE.search(text):
+        return {'status':'needs_clarification','mode':'offline',
+                'message':'我识别到你暂不希望执行卡片操作，因此没有新建、确认或撤销任何操作；已有草稿保持不变。如需操作，请明确卡号尾号和希望执行的动作。'}
     with db_session() as conn:
         cards = list(conn.execute('SELECT * FROM cards WHERE user_id=?',(USER_ID,)))
     matches=[c for c in cards if c['last4'] in text or c['name'] in text]

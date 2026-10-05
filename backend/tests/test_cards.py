@@ -137,6 +137,35 @@ def test_missing_card_requires_explicit_lock_or_loss_choice():
     assert '已临时锁定' in locked['message']
 
 
+@pytest.mark.parametrize('message', [
+    '6018卡不要挂失',
+    '不要给6018卡挂失',
+    '6018卡怎么挂失',
+    '如何正式挂失6018卡',
+])
+def test_card_help_and_negative_requests_do_not_prepare_operations(message):
+    result = cards.interpret('owner', message)
+    assert result['status'] == 'needs_clarification'
+    assert 'pending_action' not in result
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='card_update'").fetchone()[0] == 0
+
+
+def test_negative_card_request_preserves_an_existing_pending_operation():
+    pending = cards.prepare_update('owner', 'card-travel', 'online_off')['pending_action']
+    with db.db_session() as conn:
+        before_rows = [tuple(row) for row in conn.execute('SELECT id,type,status,payload_json FROM actions ORDER BY id')]
+
+    result = cards.interpret('owner', '9026不要关闭线上支付')
+    assert result['status'] == 'needs_clarification'
+    assert 'pending_action' not in result
+
+    with db.db_session() as conn:
+        after_rows = [tuple(row) for row in conn.execute('SELECT id,type,status,payload_json FROM actions ORDER BY id')]
+    assert after_rows == before_rows
+    assert any(row[0] == pending['id'] and row[2] == 'pending' for row in after_rows)
+
+
 def test_high_transfer_confirmation_bound_and_replay():
     p=direct_prepare_transfer('owner','contact-linyue','1200','验证')
     aid=p['pending_action']['id']
