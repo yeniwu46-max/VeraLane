@@ -269,11 +269,15 @@ def test_negation_withdraws_pending_transfer_action_and_reminders_never_execute(
         assert conn.execute("SELECT COUNT(*) FROM actions WHERE session_id='positive-reminder' AND type='transfer'").fetchone()[0] == 0
 
 
-def test_transfer_reminder_does_not_consume_or_replace_an_existing_draft(client):
+@pytest.mark.parametrize(
+    "reminder_text",
+    ("提醒我明天给王明转100元", "提醒我\n明天给王明转100元"),
+)
+def test_transfer_reminder_does_not_consume_or_replace_an_existing_draft(client, reminder_text):
     partial = send(client, "转给林悦", session_id="transfer-reminder-draft")
     assert "pending_action" not in partial
 
-    reminder = send(client, "提醒我明天给王明转100元", session_id="transfer-reminder-draft")
+    reminder = send(client, reminder_text, session_id="transfer-reminder-draft")
 
     assert "pending_action" not in reminder
     assert "转账提醒" in reminder["message"]
