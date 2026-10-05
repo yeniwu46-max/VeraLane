@@ -249,6 +249,20 @@ def _is_budget_how_to_request(text: str) -> bool:
     return "预算" in command and bool(_BUDGET_HOW_TO_CUE.search(command)) and bool(_BUDGET_CHANGE_CUE.search(command))
 
 
+_CLASSIFICATION_HOW_TO_CUE = re.compile(r"怎么|如何|怎样|流程|步骤|教程|操作方法")
+_CLASSIFICATION_MUTATION_CUE = re.compile(r"归类|改为|改成|设为|设成|记为|记作|算作|纠正|修正")
+
+
+def _is_classification_how_to_request(text: str) -> bool:
+    """Keep classification procedure questions out of the override parser."""
+    command = instruction_text(text)
+    return (
+        bool(_CLASSIFICATION_HOW_TO_CUE.search(command))
+        and bool(_CLASSIFICATION_MUTATION_CUE.search(command))
+        and bool(re.search(r"分类|类别|归类|交易|消费|账单", command))
+    )
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
     if _is_transfer_reminder_request(request_text):
@@ -259,6 +273,11 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
     if _is_budget_how_to_request(request_text):
         return reply(
             "这是预算设置流程咨询，不会创建或更改预算。办理时请明确说“本月餐饮预算控制在1500元”，系统会先展示月份、类别和金额并等待确认；现有预算和待确认操作保持不变。",
+            session_id, "offline",
+        )
+    if _is_classification_how_to_request(request_text):
+        return reply(
+            "这是交易归类流程咨询，不会修改统计分类。请在账单中选择具体交易，再明确说“把交易 tx-8 归类为差旅，因为是出差打车”；系统会先展示新分类和原因，确认后才会保存。已有草稿和待确认操作保持不变。",
             session_id, "offline",
         )
     if _is_transfer_how_to_request(request_text):

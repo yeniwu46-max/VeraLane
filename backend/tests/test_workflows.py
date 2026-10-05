@@ -665,6 +665,28 @@ def test_chat_category_correction_requires_confirmation_and_preserves_original_t
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
 
 
+def test_classification_how_to_question_does_not_prepare_an_override(client):
+    question = send(client, "怎么把交易 tx-8 归类为差旅？", session_id="classification-help")
+
+    assert "pending_action" not in question
+    with db.db_session() as conn:
+        assert conn.execute("SELECT 1 FROM bill_category_overrides WHERE transaction_id='tx-8'").fetchone() is None
+        assert conn.execute("SELECT category FROM transactions WHERE id='tx-8'").fetchone()["category"] == "交通"
+    assert "归类" in question["message"]
+
+
+def test_classification_how_to_question_does_not_replace_a_pending_override(client):
+    session_id = "classification-help-pending"
+    action = send(client, "把交易 tx-8 归类为差旅，因为是出差打车", session_id=session_id)["pending_action"]
+
+    question = send(client, "如何把交易 tx-9 归类为餐饮？", session_id=session_id)
+
+    assert "pending_action" not in question
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+
 def test_chat_category_correction_uses_single_transaction_from_recent_bill_question(client):
     report = send(client, "本月交通账单")
     assert report["insight_report"]["transactions"]
