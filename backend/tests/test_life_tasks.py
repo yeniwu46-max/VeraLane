@@ -25,7 +25,7 @@ def client(tmp_path, monkeypatch):
         conn.execute("UPDATE demo_clock SET now='2026-09-30T09:00:00+08:00' WHERE id=1")
     app = FastAPI()
     app.include_router(router)
-    with TestClient(app) as value:
+    with TestClient(app, base_url="http://127.0.0.1") as value:
         yield value
 
 

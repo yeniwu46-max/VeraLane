@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
     def confirm(action_id: str, body: Owner):
         return confirm_action(action_id, body.session_id)
 
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 

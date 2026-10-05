@@ -42,7 +42,7 @@ def test_upload_uses_local_engine_and_rejects_bad_images(tmp_path, monkeypatch):
     buffer = BytesIO()
     image.save(buffer, format="PNG")
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post("/api/aa/ocr/receipt", files={"file": ("receipt.png", buffer.getvalue(), "image/png")})
         assert response.status_code == 200
         body = response.json()
@@ -63,7 +63,7 @@ def test_oversized_multipart_is_rejected_before_temporary_file_spooling(monkeypa
 
     monkeypatch.setattr(formparsers, "SpooledTemporaryFile", observe_spool)
     large_payload = b"x" * (receipt_ocr.MAX_MULTIPART_BODY_BYTES + 1)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/aa/ocr/receipt",
             files={"file": ("oversized.png", large_payload, "image/png")},

@@ -229,7 +229,7 @@ app.add_middleware(BrowserWriteOriginMiddleware)
 # attacker domain cannot make the browser treat the local API as same-origin.
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"],
+    allowed_hosts=["localhost", "127.0.0.1", "[::1]"],
 )
 
 

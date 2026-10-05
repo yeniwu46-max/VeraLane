@@ -19,7 +19,7 @@ def client(tmp_path, monkeypatch):
     db.init_db()
     app = FastAPI()
     app.include_router(router)
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 

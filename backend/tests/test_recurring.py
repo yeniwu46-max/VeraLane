@@ -38,7 +38,7 @@ def client(tmp_path, monkeypatch):
     @app.post('/api/actions/{id}/confirm')
     def confirm_endpoint(id: str, request: Owner):
         return confirm_action(id, request.session_id)
-    with TestClient(app) as value:
+    with TestClient(app, base_url="http://127.0.0.1") as value:
         yield value
 
 

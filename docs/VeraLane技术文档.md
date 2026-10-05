@@ -131,7 +131,7 @@ Windows 需要 Python 3.11+、uv、Node.js 20.19+（或 22.12+）、npm：
 
 账单默认保留近期演示交易。需要展示跨年比较时，可停止服务、备份当前数据库，再运行 `uv run --frozen --env-file ../.env python -m app.demo_history --database ..\data\veralane.sqlite3 --confirm-fictional-history`。该显式工具向指定的已初始化数据库追加 32 笔 2025-12 至 2026-07 的虚构历史交易；不调整余额，不删除已有交易，可重复运行而不重复插入。若配置了其他 `VERALANE_DB_PATH`，命令行目标须与之相同。
 
-`TrustedHostMiddleware` 对所有请求限制 `Host` 为 `localhost` 或回环 IP，避免外站域名通过 DNS 重绑定读取本机 API。所有带浏览器 `Origin` 的写请求再经过来源检查：只允许本地开发 UI 的固定来源，或 `localhost`/回环地址上的当前同源请求；跨站写请求返回 403。无 `Origin` 的命令行与服务端调用仍可使用 API，因此来源校验不是身份认证或完整 CSRF 解决方案。CORS 白名单与服务端来源检查保持相同的本地开发 UI 范围。
+`TrustedHostMiddleware` 对所有请求限制 `Host` 为 `localhost`、`127.0.0.1` 或 `[::1]`，避免外站域名通过 DNS 重绑定读取本机 API。所有带浏览器 `Origin` 的写请求再经过来源检查：只允许本地开发 UI 的固定来源，或 `localhost`/回环地址上的当前同源请求；跨站写请求返回 403。无 `Origin` 的命令行与服务端调用仍可使用 API，因此来源校验不是身份认证或完整 CSRF 解决方案。CORS 白名单与服务端来源检查保持相同的本地开发 UI 范围。
 
 最外层 ASGI 响应包装器对正常页面/API、404 和框架生成的 500 响应统一添加 CSP（仅同源脚本与连接、禁止对象和嵌入）、`nosniff`、`X-Frame-Options: DENY`、Referrer Policy 与限制性 Permissions Policy。为动态图表和聊天面板尺寸样式保留 inline style。仅 HTTPS 请求添加 HSTS；当前本机默认 HTTP 不提供传输加密，不可据此暴露到公网。
 

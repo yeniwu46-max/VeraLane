@@ -8,7 +8,7 @@ from app.main import app
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, 'DB_PATH', tmp_path/'subs.sqlite3')
     monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         yield client
 
 

@@ -23,7 +23,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("VERALANE_DEMO_CONTROLS", "1")
     # Keep scanner invocation explicit so boundary/race tests cannot depend on timing.
     monkeypatch.setattr(main, "run_due_transfers", lambda: 0)
-    with TestClient(main.app) as test_client:
+    with TestClient(main.app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 

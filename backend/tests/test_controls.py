@@ -24,7 +24,7 @@ def client(tmp_path, monkeypatch):
         controls.init_schema(conn)
     app = FastAPI()
     app.include_router(router)
-    with TestClient(app) as value:
+    with TestClient(app, base_url="http://127.0.0.1") as value:
         yield value
 
 

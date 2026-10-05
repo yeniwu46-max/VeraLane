@@ -14,7 +14,7 @@ from app.main import app
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "demo.sqlite3")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 

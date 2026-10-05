@@ -23,7 +23,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("VERALANE_DEMO_CONTROLS", "1")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setattr(main, "run_due_transfers", lambda: 0)
-    with TestClient(main.app) as test_client:
+    with TestClient(main.app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 
@@ -209,7 +209,7 @@ def test_production_static_mount_is_only_public_dist_and_keeps_api_priority(clie
 
 
 def test_hsts_is_emitted_only_for_https_requests():
-    secure_client = TestClient(main.app, base_url="https://testserver")
+    secure_client = TestClient(main.app, base_url="https://127.0.0.1")
     response = secure_client.get("/api/health")
     assert response.status_code == 200
     assert response.headers["strict-transport-security"] == "max-age=31536000"
@@ -223,7 +223,7 @@ def test_unhandled_server_errors_keep_security_response_headers(client):
     mount_index = next(index for index, item in enumerate(main.app.routes) if isinstance(item, Mount))
     main.app.router.routes.insert(mount_index, route)
     try:
-        response = TestClient(main.app, raise_server_exceptions=False).get("/api/test/unhandled-error")
+        response = TestClient(main.app, base_url="http://127.0.0.1", raise_server_exceptions=False).get("/api/test/unhandled-error")
     finally:
         main.app.router.routes.remove(route)
     assert response.status_code == 500
