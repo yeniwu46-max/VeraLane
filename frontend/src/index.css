@@ -2,6 +2,7 @@
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
   color: #f3f6fc;
   background: #0b1423;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -12,4 +13,21 @@ body { margin: 0; min-width: 320px; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+button, a { touch-action: manipulation; -webkit-tap-highlight-color: rgba(149, 200, 255, .16); }
 :focus-visible { outline: 3px solid #95c8ff; outline-offset: 3px; }
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 2000;
+  transform: translateY(calc(-100% - 16px));
+  padding: 10px 14px;
+  border: 1px solid #9bcaff;
+  border-radius: 6px;
+  background: #10243d;
+  color: #fff;
+  font-weight: 650;
+  text-decoration: none;
+}
+.skip-link:focus-visible { transform: translateY(0); }

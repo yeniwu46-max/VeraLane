@@ -555,8 +555,9 @@ function App() {
 
   return (
     <div className={`app-shell ${showInsights ? 'app-shell--insights-open' : ''}`}>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">V</div><div><strong>VeraLane</strong><span>Banking, verified.</span></div></div>
+        <div className="brand"><div className="brand-mark" aria-hidden="true">V</div><div><strong>VeraLane</strong><span>Banking, verified.</span></div></div>
         <div className="sidebar-section">
           <span className="sidebar-label">工作区</span>
           {navigation.map((item) => (
@@ -570,12 +571,12 @@ function App() {
         </div>
       </aside>
 
-      <main className={`main-column ${view === 'chat' ? 'main-column--chat' : 'main-column--page'}`}>
+      <main id="main-content" tabIndex={-1} className={`main-column ${view === 'chat' ? 'main-column--chat' : 'main-column--page'}`}>
         <header className="topbar"><span>VeraLane / {navigation.find((item) => item.view === view)?.label}</span><div className="topbar__actions"><span className="topbar__demo">模拟环境 · {overview?.model_status?.mode==='deepseek'?'模型可用':'规则模式'}</span><button type="button" className="topbar__toggle" aria-expanded={showInsights} onClick={() => { setShowInsights((current) => !current); setChatSize(null) }}>{showInsights ? '收起概览' : '打开概览'}</button></div></header>
         {view === 'chat' ? <>
         <section className="conversation-panel" aria-label="银行智能体对话" ref={chatPanel} style={chatSize ? { width: chatSize.width, height: chatSize.height } : undefined}>
-          <div className="conversation-panel__header"><div><h1>VeraLane 对话</h1><p>账户与操作来自模拟银行环境</p></div><span className={`status-pill ${serviceState === 'offline' ? 'status-pill--offline' : ''}`}><i />{serviceState === 'ready' ? '服务就绪' : serviceState === 'offline' ? '连接中断' : '连接中'}</span></div>
-          <div className="thread">
+          <div className="conversation-panel__header"><div><h1>VeraLane 对话</h1><p>账户与操作来自模拟银行环境</p></div><span className={`status-pill ${serviceState === 'offline' ? 'status-pill--offline' : ''}`} role="status" aria-live="polite"><i aria-hidden="true" />{serviceState === 'ready' ? '服务就绪' : serviceState === 'offline' ? '连接中断' : '连接中'}</span></div>
+          <div className="thread" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions">
             {messages.map((item) => (
               <div className={`message message--${item.role}`} key={item.id}>
                 {item.role === 'assistant' && <div className="avatar">V</div>}
@@ -664,7 +665,7 @@ function App() {
           </>}
 
           {view === 'subscriptions' && <SubscriptionPanel sessionId={sessionId} onChanged={refreshOverview} />}
-          {view === 'tasks' && <><div className="workspace-tabs" role="tablist" aria-label="任务类型"><button role="tab" aria-selected={taskTab==='plans'} onClick={()=>setTaskTab('plans')}>支出优化</button><button role="tab" aria-selected={taskTab==='life'} onClick={()=>setTaskTab('life')}>生日计划</button><button role="tab" aria-selected={taskTab==='funds'} onClick={()=>setTaskTab('funds')}>资金预留与时钟</button></div>{taskTab==='plans'?<PlansPanel initialPlanId={workflowSeed?.section==='plans'?workflowSeed.plan_id:undefined} initialMessage={workflowSeed?.section==='plans'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='life'?<LifePanel initialMessage={workflowSeed?.section==='life'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:<FundsPanel sessionId={sessionId} onChanged={refreshOverview}/>}</>}
+          {view === 'tasks' && <><div className="workspace-tabs" role="group" aria-label="任务类型"><button type="button" aria-pressed={taskTab==='plans'} onClick={()=>setTaskTab('plans')}>支出优化</button><button type="button" aria-pressed={taskTab==='life'} onClick={()=>setTaskTab('life')}>生日计划</button><button type="button" aria-pressed={taskTab==='funds'} onClick={()=>setTaskTab('funds')}>资金预留与时钟</button></div>{taskTab==='plans'?<PlansPanel initialPlanId={workflowSeed?.section==='plans'?workflowSeed.plan_id:undefined} initialMessage={workflowSeed?.section==='plans'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='life'?<LifePanel initialMessage={workflowSeed?.section==='life'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:<FundsPanel sessionId={sessionId} onChanged={refreshOverview}/>}</>}
           {view === 'investments' && <InvestmentPanel initialMessage={workflowSeed?.view==='investments'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
           {view === 'cards' && <CardPanel initialMessage={workflowSeed?.view==='cards'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
         </section>}
