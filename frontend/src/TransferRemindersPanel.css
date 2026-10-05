@@ -1,0 +1,20 @@
+.transfer-reminders { display: grid; gap: 18px; max-width: 980px; }
+.transfer-reminders__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.transfer-reminders__eyebrow { color: var(--vl-accent, #82c9c5); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.transfer-reminders__header h2 { margin: 5px 0 0; color: var(--vl-ink); font-size: 24px; }
+.transfer-reminders__notice { max-width: 760px; margin: 0; color: var(--vl-muted); font-size: 13px; line-height: 1.7; }
+.transfer-reminders__status { margin: 0; color: var(--vl-accent, #82c9c5); font-size: 13px; }
+.transfer-reminders__empty { display: grid; gap: 8px; padding: 28px; border: 1px solid var(--vl-line); border-radius: 8px; color: var(--vl-muted); }
+.transfer-reminders__empty strong { color: var(--vl-ink); }
+.transfer-reminders__list { display: grid; gap: 10px; }
+.transfer-reminder { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--vl-line); border-radius: 8px; background: rgba(18, 37, 59, .72); }
+.transfer-reminder__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--vl-ink); }
+.transfer-reminder__meta span { color: var(--vl-muted); font-size: 12px; }
+.transfer-reminder p { margin: 0; color: var(--vl-ink); line-height: 1.6; overflow-wrap: anywhere; }
+.transfer-reminder small { color: var(--vl-muted); font-size: 11px; }
+.transfer-reminder__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.transfer-reminder__cancel { border: 1px solid var(--vl-line); border-radius: 6px; background: transparent; color: var(--vl-muted); padding: 8px 12px; cursor: pointer; }
+.transfer-reminder__cancel:disabled { opacity: .55; cursor: wait; }
+.transfer-reminder--due { border-color: rgba(238, 189, 112, .6); }
+.transfer-reminder--completed, .transfer-reminder--cancelled { opacity: .7; }
+@media (max-width: 640px) { .transfer-reminders__header { align-items: flex-start; } .transfer-reminder__meta { align-items: flex-start; flex-direction: column; gap: 4px; } }

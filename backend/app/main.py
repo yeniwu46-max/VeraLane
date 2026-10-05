@@ -41,6 +41,7 @@ from .aliases_api import router as aliases_router
 from .recurring_api import router as recurring_router
 from .bill_preferences_api import router as bill_preferences_router
 from .receipt_ocr import MAX_MULTIPART_BODY_BYTES, router as receipt_ocr_router
+from .transfer_reminders import router as transfer_reminders_router
 
 
 async def scheduler_loop():
@@ -110,6 +111,7 @@ app.include_router(aliases_router)
 app.include_router(recurring_router)
 app.include_router(bill_preferences_router)
 app.include_router(receipt_ocr_router)
+app.include_router(transfer_reminders_router)
 
 
 class ReceiptBodyLimitMiddleware:

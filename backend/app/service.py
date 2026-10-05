@@ -225,6 +225,11 @@ def _is_transfer_reminder_request(text: str) -> bool:
     return bool(_TRANSFER_REMINDER_REQUEST.search(instruction_text(text)))
 
 
+_TRANSFER_REMINDER_MANAGE_REQUEST = re.compile(
+    r"(?:不想收到|不要接收|关闭|取消|停止)[\s\S]{0,12}(?:转账提醒|提醒)"
+)
+
+
 _TRANSFER_HOW_TO_REQUEST = re.compile(
     r"(?:(?:怎么(?!回事)|如何|怎样)[\s\S]{0,20}"
     r"(?:转账|转给|打给|汇给|付款|支付)"
@@ -266,9 +271,20 @@ def _is_classification_how_to_request(text: str) -> bool:
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
     if _is_transfer_reminder_request(request_text):
+        if _TRANSFER_REMINDER_MANAGE_REQUEST.search(request_text):
+            return reply(
+                "请在任务中心的“转账提醒”列表中逐条查看并取消已保存事项。这条消息本身不会创建提醒，也不会影响未确认的转账。",
+                session_id, "offline",
+                workflow={"view": "tasks", "section": "reminders", "message": message},
+            )
+        from .transfer_reminders import create_from_message
+        reminder = create_from_message(session_id, request_text)
+        if not reminder["created"]:
+            return reply(reminder["message"], session_id, "offline")
         return reply(
-            "我目前不支持创建、发送或管理转账提醒。这条消息不会生成或执行转账；已有的未完成转账草稿和待确认操作保持不变。",
+            f"已创建 {reminder['due_on']} 的转账提醒（站内）：{reminder['body']}。到期后会出现在任务中心；这只是核对提示，不会执行转账，也不会发送系统通知。",
             session_id, "offline",
+            workflow={"view": "tasks", "section": "reminders", "message": message},
         )
     if _is_budget_how_to_request(request_text):
         return reply(

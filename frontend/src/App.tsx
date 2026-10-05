@@ -12,6 +12,7 @@ import { AliasPanel } from './AliasPanel'
 import { LifePanel } from './LifePanel'
 import { AdvancedTransfersPanel } from './AdvancedTransfersPanel'
 import { BillPreferencesPanel } from './BillPreferencesPanel'
+import { TransferRemindersPanel } from './TransferRemindersPanel'
 import { DemoVerification } from './OperationConfirm'
 import type { AaDraft, AaSeed, AaSource } from './aaApi'
 import { formatBankTime } from './bankTime'
@@ -45,7 +46,7 @@ type AgentReply = {
   classification_choices?: { id: string; posted_on: string; counterparty: string; amount_yuan: string; category: string }[]
   classification_category?: string
   classification_reason?: string
-  workflow?: {view:View;section?:'plans'|'life';message:string;plan_id?:string}
+  workflow?: {view:View;section?:'plans'|'life'|'reminders';message:string;plan_id?:string}
 }
 
 type ConversationMessage = {
@@ -276,7 +277,7 @@ function Provenance({ reply }: { reply: AgentReply }) {
 function App() {
   const [sessionId] = useState(getSessionId)
   const [view, setView] = useState<View>(viewFromHash)
-  const [taskTab, setTaskTab] = useState<'plans' | 'funds' | 'life'>('plans')
+  const [taskTab, setTaskTab] = useState<'plans' | 'funds' | 'life' | 'reminders'>('plans')
   const [workflowSeed, setWorkflowSeed] = useState<AgentReply['workflow']>()
   const [transferTab, setTransferTab] = useState<'transfer' | 'aa' | 'advanced'>('transfer')
   const [aaSeed, setAaSeed] = useState<AaSeed | undefined>()
@@ -665,7 +666,7 @@ function App() {
           </>}
 
           {view === 'subscriptions' && <SubscriptionPanel sessionId={sessionId} onChanged={refreshOverview} />}
-          {view === 'tasks' && <><div className="workspace-tabs" role="group" aria-label="任务类型"><button type="button" aria-pressed={taskTab==='plans'} onClick={()=>setTaskTab('plans')}>支出优化</button><button type="button" aria-pressed={taskTab==='life'} onClick={()=>setTaskTab('life')}>生日计划</button><button type="button" aria-pressed={taskTab==='funds'} onClick={()=>setTaskTab('funds')}>资金预留与时钟</button></div>{taskTab==='plans'?<PlansPanel initialPlanId={workflowSeed?.section==='plans'?workflowSeed.plan_id:undefined} initialMessage={workflowSeed?.section==='plans'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='life'?<LifePanel initialMessage={workflowSeed?.section==='life'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:<FundsPanel sessionId={sessionId} onChanged={refreshOverview}/>}</>}
+          {view === 'tasks' && <><div className="workspace-tabs" role="group" aria-label="任务类型"><button type="button" aria-pressed={taskTab==='plans'} onClick={()=>setTaskTab('plans')}>支出优化</button><button type="button" aria-pressed={taskTab==='life'} onClick={()=>setTaskTab('life')}>生日计划</button><button type="button" aria-pressed={taskTab==='funds'} onClick={()=>setTaskTab('funds')}>资金预留与时钟</button><button type="button" aria-pressed={taskTab==='reminders'} onClick={()=>setTaskTab('reminders')}>转账提醒</button></div>{taskTab==='plans'?<PlansPanel initialPlanId={workflowSeed?.section==='plans'?workflowSeed.plan_id:undefined} initialMessage={workflowSeed?.section==='plans'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='life'?<LifePanel initialMessage={workflowSeed?.section==='life'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview}/>:taskTab==='funds'?<FundsPanel sessionId={sessionId} onChanged={refreshOverview}/>:<TransferRemindersPanel sessionId={sessionId}/>}</>}
           {view === 'investments' && <InvestmentPanel initialMessage={workflowSeed?.view==='investments'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
           {view === 'cards' && <CardPanel initialMessage={workflowSeed?.view==='cards'?workflowSeed.message:undefined} sessionId={sessionId} onChanged={refreshOverview} />}
         </section>}

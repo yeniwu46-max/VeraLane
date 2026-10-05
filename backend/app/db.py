@@ -224,6 +224,8 @@ def init_db() -> None:
         init_recurring(conn)
         from .bill_preferences import init_schema as init_bill_preferences
         init_bill_preferences(conn)
+        from .transfer_reminders import init_schema as init_transfer_reminders
+        init_transfer_reminders(conn)
         conn.execute("INSERT OR IGNORE INTO demo_clock (id, now) VALUES (1, ?)",
                      (f"{DEMO_DATE}T09:00:00+08:00",))
         conn.execute("UPDATE aa_collections SET reminder_on = date(substr((SELECT now FROM demo_clock WHERE id=1),1,10), '+3 day') "

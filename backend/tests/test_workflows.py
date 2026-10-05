@@ -331,6 +331,7 @@ def test_transfer_reminder_preferences_do_not_withdraw_transfer_actions(client):
     action = send(client, "转给林悦100元")["pending_action"]
     result = send(client, "我不想收到转账提醒")
     assert "未发生扣款" not in result["message"]
+    assert result["workflow"]["section"] == "reminders"
     with db.db_session() as conn:
         status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
     assert status == "pending"
@@ -367,6 +368,71 @@ def test_payment_wording_negation_clears_unconfirmed_transfer_draft(client):
     declined = send(client, "不要给林悦付款了")
     assert "未确认的转账草稿" in declined["message"]
     assert "pending_action" not in send(client, "300元")
+
+
+def test_natural_transfer_reminder_saves_an_in_app_note_without_creating_money_action(client):
+    before_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    result = send(client, "提醒我明天给林悦转300元", session_id="transfer-reminder-owner")
+
+    assert "不会执行转账" in result["message"]
+    assert result["workflow"]["view"] == "tasks"
+    assert result["workflow"]["section"] == "reminders"
+    reminders = client.get("/api/transfer-reminders", params={"session_id": "transfer-reminder-owner"}).json()["items"]
+    assert len(reminders) == 1
+    assert reminders[0]["due_on"] == "2026-10-01"
+    assert reminders[0]["status"] == "pending"
+    assert "给林悦转300元" in reminders[0]["body"]
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == before_balance
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE session_id='transfer-reminder-owner' AND type LIKE '%transfer%'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM transfer_reminders").fetchone()[0] == 1
+
+
+def test_transfer_reminder_requires_one_future_calendar_date_and_preserves_existing_draft(client):
+    draft = send(client, "转给林悦", session_id="reminder-date-clarification")
+    assert "pending_action" not in draft
+
+    missing = send(client, "提醒我给王明转100元", session_id="reminder-date-clarification")
+    assert "明确的未来日期" in missing["message"]
+    assert "pending_action" not in missing
+    assert send(client, "300元", session_id="reminder-date-clarification")["pending_action"]["details"]["recipient"] == "林悦"
+
+    for text in ("每月5日提醒我给林悦转100元", "提醒我10月6日或10月7日给林悦转账", "提醒我昨天给林悦转100元"):
+        refused = send(client, text, session_id=f"invalid-reminder-{text[:5]}")
+        assert "pending_action" not in refused
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM transfer_reminders").fetchone()[0] == 0
+
+
+def test_transfer_reminder_becomes_due_on_demo_clock_without_executing_transfer(client):
+    before_balance = client.get("/api/overview").json()["account"]["balance_yuan"]
+    created = send(client, "提醒我10月1日给林悦转100元", session_id="reminder-due-owner")
+    reminder_id = client.get("/api/transfer-reminders", params={"session_id": "reminder-due-owner"}).json()["items"][0]["id"]
+
+    advanced = client.post("/api/demo/clock/advance-next", json={"session_id": "reminder-due-owner"})
+    assert advanced.status_code == 200
+    items = client.get("/api/transfer-reminders", params={"session_id": "reminder-due-owner"}).json()["items"]
+    assert items[0]["id"] == reminder_id
+    assert items[0]["status"] == "due"
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == before_balance
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE action_id IN (SELECT id FROM actions WHERE type LIKE '%transfer%')").fetchone()[0] == 0
+
+
+def test_transfer_reminders_are_session_scoped_and_can_be_completed_or_cancelled(client):
+    send(client, "提醒我10月1日给林悦转100元", session_id="reminder-session-a")
+    send(client, "提醒我10月2日给王明转200元", session_id="reminder-session-b")
+    a = client.get("/api/transfer-reminders", params={"session_id": "reminder-session-a"}).json()["items"]
+    b = client.get("/api/transfer-reminders", params={"session_id": "reminder-session-b"}).json()["items"]
+    assert len(a) == len(b) == 1
+    assert a[0]["id"] != b[0]["id"]
+    assert client.post(f"/api/transfer-reminders/{a[0]['id']}/complete", json={"session_id": "reminder-session-b"}).status_code == 404
+    assert client.post(f"/api/transfer-reminders/{a[0]['id']}/complete", json={"session_id": "reminder-session-a"}).status_code == 200
+    assert client.post(f"/api/transfer-reminders/{b[0]['id']}/cancel", json={"session_id": "reminder-session-b"}).status_code == 200
+    final_a = client.get("/api/transfer-reminders", params={"session_id": "reminder-session-a"}).json()["items"]
+    final_b = client.get("/api/transfer-reminders", params={"session_id": "reminder-session-b"}).json()["items"]
+    assert final_a[0]["status"] == "completed"
+    assert final_b[0]["status"] == "cancelled"
 
 
 def test_red_transfer_cannot_bypass_strong_verification(client):
