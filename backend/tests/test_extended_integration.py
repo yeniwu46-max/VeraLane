@@ -31,6 +31,27 @@ def post(client, path, **payload):
     return client.post(path, json={"session_id": SESSION, **payload})
 
 
+def test_browser_write_requests_reject_untrusted_origins_but_allow_local_ui(client):
+    payload = {"session_id": SESSION, "message": "上个月餐饮花了多少"}
+
+    blocked = client.post("/api/chat", json=payload, headers={"Origin": "https://attacker.example"})
+    assert blocked.status_code == 403
+    assert blocked.json() == {"detail": "跨站写请求已拒绝"}
+
+    rebound_host = client.post("/api/chat", json=payload, headers={
+        "Origin": "https://attacker.example", "Host": "attacker.example",
+    })
+    assert rebound_host.status_code == 403
+
+    same_origin = client.post("/api/chat", json=payload, headers={
+        "Origin": "http://localhost:8001", "Host": "localhost:8001",
+    })
+    assert same_origin.status_code == 200, same_origin.text
+
+    dev_origin = client.post("/api/chat", json=payload, headers={"Origin": "http://127.0.0.1:5173"})
+    assert dev_origin.status_code == 200, dev_origin.text
+
+
 def prepared(client, path, **payload):
     response = post(client, path, **payload)
     assert response.status_code == 200, response.status_code

@@ -9,8 +9,10 @@ import io
 import json
 import asyncio
 import logging
+from ipaddress import ip_address
 from contextlib import asynccontextmanager
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -162,12 +164,66 @@ class _ReceiptBodyTooLarge(Exception):
 
 
 app.add_middleware(ReceiptBodyLimitMiddleware)
+
+ALLOWED_FRONTEND_ORIGINS = frozenset({"http://localhost:5173", "http://127.0.0.1:5173"})
+
+
+class BrowserWriteOriginMiddleware:
+    """Reject browser-originated writes from sites outside the local demo UI."""
+
+    def __init__(self, application):
+        self.application = application
+
+    @staticmethod
+    def _origin_parts(value: str):
+        parsed = urlsplit(value)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None
+        if parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+            return None
+        try:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError:
+            return None
+        return parsed.scheme.lower(), parsed.hostname.rstrip(".").lower(), port
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("method") in {"POST", "PUT", "PATCH", "DELETE"}:
+            headers = scope.get("headers", [])
+            origins = [value.decode("latin-1") for name, value in headers if name.lower() == b"origin"]
+            if origins:
+                origin = origins[0]
+                request_host = next((value.decode("latin-1") for name, value in headers
+                                     if name.lower() == b"host"), "")
+                origin_parts = self._origin_parts(origin)
+                same_local_origin = False
+                if len(origins) == 1 and origin_parts:
+                    request_parts = self._origin_parts(f"{scope.get('scheme', 'http')}://{request_host}")
+                    hostname = request_parts[1] if request_parts else ""
+                    try:
+                        is_loopback = hostname == "localhost" or ip_address(hostname).is_loopback
+                    except ValueError:
+                        is_loopback = False
+                    same_local_origin = is_loopback and origin_parts == request_parts
+
+                if len(origins) != 1 or (origin not in ALLOWED_FRONTEND_ORIGINS and not same_local_origin):
+                    body = '{"detail":"跨站写请求已拒绝"}'.encode("utf-8")
+                    await send({"type": "http.response.start", "status": 403, "headers": [
+                        (b"content-type", b"application/json; charset=utf-8"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+        await self.application(scope, receive, send)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=sorted(ALLOWED_FRONTEND_ORIGINS),
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+app.add_middleware(BrowserWriteOriginMiddleware)
 
 
 class ChatRequest(BaseModel):
