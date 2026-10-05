@@ -299,14 +299,17 @@ def verify_challenge(action_id: str, session_id: str, challenge_id: str, code: s
             raise HTTPException(409, "操作内容已变化，请重新核对并验证")
         valid_code = isinstance(code, str) and re.fullmatch(r"\d{6}", code) and hmac.compare_digest(row["code_hash"], _code_hash(challenge_id, code))
         if not valid_code:
+            if row["status"] == "verified":
+                raise HTTPException(409, "该验证已完成，不能修改其授权状态")
             attempts = row["attempts"] + 1
             conn.execute("UPDATE action_challenges SET attempts=?,status=? WHERE id=?",
                          (attempts, "locked" if attempts >= 3 else "active", challenge_id))
             db.audit(conn, session_id, "demo_challenge_failed", {"action_id": action_id, "attempts_remaining": 3 - attempts})
             conn.commit()  # Persist failed guesses even though the HTTP request fails.
             raise HTTPException(403, f"模拟验证码错误，剩余 {3 - attempts} 次机会")
-        conn.execute("UPDATE action_challenges SET status='verified',verified_at=? WHERE id=?", (db.utc_now(), challenge_id))
-        db.audit(conn, session_id, "demo_challenge_verified", {"action_id": action_id, "challenge_id": challenge_id})
+        if row["status"] != "verified":
+            conn.execute("UPDATE action_challenges SET status='verified',verified_at=? WHERE id=?", (db.utc_now(), challenge_id))
+            db.audit(conn, session_id, "demo_challenge_verified", {"action_id": action_id, "challenge_id": challenge_id})
         conn.commit()
         return {"action_id": action_id, "challenge_id": challenge_id, "verified": True,
                 "expires_at": row["expires_at"], "mode": "simulated", "notice": DEMO_NOTICE}

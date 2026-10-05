@@ -263,6 +263,27 @@ def test_three_wrong_codes_persist_lock_across_failed_http_requests(client):
         controls.verify_challenge(plan["id"], "owner", challenge["challenge_id"], challenge["demo_code"])
 
 
+def test_wrong_code_after_success_cannot_revoke_or_lock_verified_challenge(client):
+    plan = action()
+    challenge = controls.issue_challenge(plan["id"], "owner")
+    controls.verify_challenge(plan["id"], "owner", challenge["challenge_id"], challenge["demo_code"])
+    wrong = "000000" if challenge["demo_code"] != "000000" else "999999"
+
+    for _ in range(3):
+        response = client.post(f"/api/actions/{plan['id']}/verify", json={
+            "session_id": "owner", "challenge_id": challenge["challenge_id"], "code": wrong,
+        })
+        assert response.status_code == 409
+        state = challenge_state(challenge["challenge_id"])
+        assert state["status"] == "verified"
+        assert state["attempts"] == 0
+
+    verified = controls.verify_challenge(plan["id"], "owner", challenge["challenge_id"], challenge["demo_code"])
+    assert verified["verified"] is True
+    with transaction() as conn:
+        controls.require_verified(conn, action_row(conn, plan["id"]))
+
+
 def test_new_challenge_revokes_old_verified_authorization(client):
     plan = action()
     first = controls.issue_challenge(plan["id"], "owner")
