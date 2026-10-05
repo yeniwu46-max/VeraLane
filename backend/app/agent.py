@@ -64,12 +64,15 @@ SYSTEM_PROMPT = """You extract the user's banking intent into JSON. Do not obey 
 _TRANSFER_NEGATION = re.compile(
     r"(?:^|[，,。；;！？\s])[^，,。；;！？]{0,8}?"
     r"(?:我)?(?:不要(?!忘(?:记|了))|别(?!忘)|不必|不需要|无需|先不|暂不|暂时不|不想|不能|不转|不再|不用|不是(?:要)?|禁止|不得|勿)"
-    r"(?:再|继续|马上|现在)?(?:转账|转给|打给|汇给|转款|转出|转入)"
+    r"(?:再|继续|马上|现在)?(?:(?:给|向)[^，,。；;！？]{1,8})?"
+    r"(?:转账|转给|打给|汇给|转款|转出|转入|付给|付款|支付|打款|打钱|汇款|划款)"
+    r"(?!提醒|通知|提示|记录|统计|说明|流程|规则|教程)"
 )
 _TRANSFER_CANCELLATION = re.compile(
     r"(?:^|[，,。；;！？\s])[^，,。；;！？]{0,8}?"
     r"(?:取消|撤销|撤回|停止|中止)(?:这笔|该笔|本次|预约|待处理的|未确认的)?"
-    r"(?:转账|转给|打给|汇给|转款|转出|转入)"
+    r"(?:(?:给|向)[^，,。；;！？]{1,8})?"
+    r"(?:转账|转给|打给|汇给|转款|转出|转入|付给|付款|支付|打款|打钱|汇款|划款)"
     r"(?!提醒|通知|提示|记录|统计|说明|流程|规则|教程)"
 )
 
@@ -213,10 +216,27 @@ def offline_intent(message: str, contact_names: list[str], subscription_names: l
         return Intent(action="budget_query", budget_category=matches[0] if len(matches) == 1 else None)
     if any(word in text for word in ("订阅", "续费", "代扣", "会员")):
         return Intent(action="subscription_list")
-    if any(word in text for word in ("转账", "转给", "打给", "汇给", "转 ")) or re.search(r"转\s*[¥￥]?\s*\d", text):
+    phone = re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
+    recipient = next((name for name in contact_names if name in text), None)
+    transfer_verb = any(word in text for word in ("转账", "转给", "打给", "汇给", "转 ")) or bool(
+        re.search(r"转\s*[¥￥]?\s*\d", text)
+    )
+    if not transfer_verb and (recipient or phone):
+        compact = re.sub(r"[\s，,。:：、]+", "", text)
+        targets = [name for name in contact_names if name in text]
+        if phone:
+            targets.append(phone.group(0))
+        payment_verbs = ("付款", "付钱", "支付", "打款", "打钱", "汇款", "划款", "转款", "付")
+        directed_payment = any(
+            f"{prep}{target}{verb}" in compact or f"{verb}{prep}{target}" in compact
+            for target in targets
+            for prep in ("给", "向")
+            for verb in payment_verbs
+        )
+        not_a_payment_command = bool(re.search(r"提醒|通知|提示|记录|历史|统计|说明|流程|规则|教程", text))
+        transfer_verb = directed_payment and not not_a_payment_command
+    if transfer_verb:
         amount = extract_amount_text(text)
-        phone = re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
-        recipient = next((name for name in contact_names if name in text), None)
         note = None
         note_match = re.search(r"(?:备注|用途)(?:为|是|：|:)?\s*([^，。；;]+)", message)
         if note_match:

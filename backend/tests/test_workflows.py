@@ -39,6 +39,32 @@ def test_transfer_requires_confirmation_and_is_idempotent(client):
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8588.30"
 
 
+@pytest.mark.parametrize(("message", "expected_note"), [
+    ("帮我给林悦付款300元，备注房租", "房租"),
+    ("向林悦支付300元，用途午餐", "午餐"),
+    ("把300元付给林悦，备注车费", "车费"),
+    ("给林悦打款300元", "转账"),
+])
+def test_common_directed_payment_phrasings_prepare_transfer(client, message, expected_note):
+    result = send(client, message, session_id=f"payment-{expected_note}")
+    assert result["pending_action"]["type"] == "transfer"
+    details = result["pending_action"]["details"]
+    assert details["recipient"] == "林悦"
+    assert details["amount_yuan"] == "300.00"
+    assert details["note"] == expected_note
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8888.30"
+
+
+def test_directed_payment_by_phone_and_ambiguous_name_keep_contact_checks(client):
+    by_phone = send(client, "给13800001234付款300元，备注房租", session_id="payment-phone")
+    assert by_phone["pending_action"]["details"]["recipient"] == "林悦"
+    assert by_phone["pending_action"]["details"]["phone_masked"].endswith("1234")
+
+    ambiguous = send(client, "给王明付款200元", session_id="payment-ambiguous")
+    assert "pending_action" not in ambiguous
+    assert len(ambiguous["choices"]) == 2
+
+
 def test_transfer_history_question_is_read_only_and_returns_ledger_evidence(client):
     with db.db_session() as conn:
         conn.execute(
@@ -59,7 +85,22 @@ def test_transfer_history_question_is_read_only_and_returns_ledger_evidence(clie
             "SELECT details_json FROM audit WHERE session_id=? AND event='transfer_history_queried'",
             ("test-session",),
         ).fetchone()
-        assert "tx-history-lin" in audit["details_json"]
+    assert "tx-history-lin" in audit["details_json"]
+
+
+def test_past_directed_payment_question_is_read_only(client):
+    with db.db_session() as conn:
+        conn.execute(
+            "INSERT INTO transactions (id, account_id, posted_on, direction, amount_cents, counterparty, category, note) "
+            "VALUES (?, ?, ?, 'out', ?, ?, '转账', ?)",
+            ("tx-paid-lin", db.ACCOUNT_ID, "2026-09-20", 30000, "林悦", "房租"),
+        )
+    result = send(client, "本月给林悦付了多少钱")
+    assert "pending_action" not in result
+    assert result["transaction_query"]["transactions"][0]["id"] == "tx-paid-lin"
+    assert result["transaction_query"]["transactions"][0]["amount_yuan"] == "300.00"
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE type='transfer'").fetchone()[0] == 0
 
 
 def test_transfer_failure_question_does_not_prepare_a_new_debit(client):
@@ -254,6 +295,17 @@ def test_negation_clears_partial_transfer_slots_without_cancelling_approved_sche
     with db.db_session() as conn:
         schedule = conn.execute("SELECT status FROM scheduled_transfers WHERE id=?", (scheduled["id"],)).fetchone()
         assert schedule["status"] == "pending"
+
+
+def test_payment_wording_negation_clears_unconfirmed_transfer_draft(client):
+    partial = send(client, "给林悦付款")
+    assert "pending_action" not in partial
+    for reminder_request in ("我不想收到转账提醒", "不要给林悦付款提醒"):
+        reminder = send(client, reminder_request)
+        assert "未确认的转账草稿" not in reminder["message"]
+    declined = send(client, "不要给林悦付款了")
+    assert "未确认的转账草稿" in declined["message"]
+    assert "pending_action" not in send(client, "300元")
 
 
 def test_red_transfer_cannot_bypass_strong_verification(client):
