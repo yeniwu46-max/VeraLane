@@ -1009,7 +1009,7 @@ def confirm_action(action_id: str, session_id: str) -> dict[str, Any]:
             return json.loads(row["result_json"])
         if row["status"] != "pending":
             raise HTTPException(status_code=409, detail="该操作已失效")
-        if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
             conn.execute("UPDATE actions SET status = 'expired' WHERE id = ?", (action_id,))
             audit(conn, session_id, "action_expired", {"action_id": action_id})
             conn.commit()

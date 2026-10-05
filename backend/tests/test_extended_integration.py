@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 
-from app import agent, db, execution_controls, main
+from app import agent, db, execution_controls, main, service
 
 
 SESSION = "integration-owner"
@@ -89,6 +90,30 @@ def test_health_rejects_databases_missing_core_tables(client, tmp_path, monkeypa
     response = client.get("/api/health")
     assert response.status_code == 503
     assert response.json() == {"detail": "本地模拟账本暂不可用"}
+
+
+def test_action_expires_at_exact_confirmation_time_and_never_posts(client, monkeypatch):
+    action = prepared(client, "/api/transfers/prepare", contact_id="contact-linyue", amount_yuan="1", note="到期边界")
+    expires_at = datetime.fromisoformat(action["expires_at"])
+    with db.db_session() as conn:
+        transactions_before = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+
+    class ExactExpiryClock:
+        @staticmethod
+        def fromisoformat(value):
+            return datetime.fromisoformat(value)
+
+        @staticmethod
+        def now(_timezone):
+            return expires_at
+
+    monkeypatch.setattr(service, "datetime", ExactExpiryClock)
+    response = post(client, f"/api/actions/{action['id']}/confirm")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "确认已过期，请重新发起"}
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == transactions_before
+        assert conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()[0] == "expired"
 
 
 def prepared(client, path, **payload):
