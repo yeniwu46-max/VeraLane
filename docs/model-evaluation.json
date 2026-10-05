@@ -38,5 +38,19 @@
     "http_status": 401,
     "reason": "model_http_error",
     "notice": "API鉴权未通过。三项功能均由规则降级返回，不能计作真实模型任务成功率。后续诊断请求也未执行业务写操作。"
+  },
+  "online_evaluation_2026_10_05": {
+    "scope": "仅发送合成的余额查询、账单查询和转账意图文本；直接调用意图解析器，不读取真实账户资料、不执行银行工具。",
+    "authorized_max_requests": 3,
+    "requests_sent": 2,
+    "successful_model_responses": 0,
+    "attempts": [
+      { "case": "balance", "http_status": 401, "result_mode": "offline", "fallback_reason": "model_http_error" },
+      { "case": "bills", "http_status": 401, "result_mode": "offline", "fallback_reason": "model_http_error" },
+      { "case": "transfer", "request_sent": false, "result_mode": "offline", "fallback_reason": "token_limit" }
+    ],
+    "reported_provider_usage": null,
+    "model_quality_score": null,
+    "notice": "两次请求均鉴权失败，未形成真实模型质量样本。第三条因本地 token 预算保护而未发送；离线规则返回符合预期不能计为模型成功。"
   }
 }
