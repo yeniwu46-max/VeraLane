@@ -513,6 +513,31 @@ def test_natural_language_category_budget_creates_confirmable_plan_and_updates_e
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == original_balance
 
 
+def test_budget_how_to_question_does_not_prepare_a_budget_change(client):
+    question = send(client, "怎么设置本月餐饮预算1500元？", session_id="budget-how-to")
+
+    assert "pending_action" not in question
+    with db.db_session() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM actions WHERE session_id='budget-how-to' AND type='bill_budget_upsert'"
+        ).fetchone()[0]
+    assert count == 0
+    assert client.get("/api/bill-preferences", params={"session_id": "budget-how-to"}).json()["budgets"] == []
+
+
+def test_budget_how_to_question_does_not_replace_a_pending_budget_change(client):
+    session_id = "budget-how-to-pending"
+    action = send(client, "本月餐饮预算控制在1500元", session_id=session_id)["pending_action"]
+
+    question = send(client, "如何调整预算？", session_id=session_id)
+
+    assert "pending_action" not in question
+    assert "预算" in question["message"]
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+
 def test_natural_language_total_budget_is_supported_but_ambiguous_category_is_not_guessed(client):
     total = send(client, "本月总预算控制在3000元")
     assert total["pending_action"]["type"] == "bill_budget_upsert"

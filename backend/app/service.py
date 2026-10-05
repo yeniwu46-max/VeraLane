@@ -239,11 +239,26 @@ def _is_transfer_how_to_request(text: str) -> bool:
     return bool(_TRANSFER_HOW_TO_REQUEST.search(command)) and not _is_transfer_history_query(command)
 
 
+_BUDGET_HOW_TO_CUE = re.compile(r"怎么|如何|怎样|流程|步骤|教程|操作方法")
+_BUDGET_CHANGE_CUE = re.compile(r"设置|设定|调整|制定|修改|取消|删除|撤销|清除|控制在|设为|设到|设成")
+
+
+def _is_budget_how_to_request(text: str) -> bool:
+    """Keep budget setup instructions out of the budget mutation parser."""
+    command = instruction_text(text)
+    return "预算" in command and bool(_BUDGET_HOW_TO_CUE.search(command)) and bool(_BUDGET_CHANGE_CUE.search(command))
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
     if _is_transfer_reminder_request(request_text):
         return reply(
             "我目前不支持创建、发送或管理转账提醒。这条消息不会生成或执行转账；已有的未完成转账草稿和待确认操作保持不变。",
+            session_id, "offline",
+        )
+    if _is_budget_how_to_request(request_text):
+        return reply(
+            "这是预算设置流程咨询，不会创建或更改预算。办理时请明确说“本月餐饮预算控制在1500元”，系统会先展示月份、类别和金额并等待确认；现有预算和待确认操作保持不变。",
             session_id, "offline",
         )
     if _is_transfer_how_to_request(request_text):
