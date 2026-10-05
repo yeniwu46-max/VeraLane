@@ -282,6 +282,7 @@ function App() {
   const [aaSeed, setAaSeed] = useState<AaSeed | undefined>()
   const [insightQuestion, setInsightQuestion] = useState<string>()
   const [overview, setOverview] = useState<Overview | null>(null)
+  const [serviceState, setServiceState] = useState<'checking' | 'ready' | 'offline'>('checking')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [transferContactId, setTransferContactId] = useState('')
   const [transferAmount, setTransferAmount] = useState('')
@@ -380,6 +381,47 @@ function App() {
     void apiJson<Contact[]>('/api/contacts')
       .then(setContacts)
       .catch(() => setError('无法读取收款人。请检查后端服务。'))
+  }, [])
+  useEffect(() => {
+    const controller = new AbortController()
+    let checking = false
+    let disposed = false
+    let wasOffline = false
+    const checkHealth = async () => {
+      if (checking) return
+      checking = true
+      try {
+        const health = await apiJson<{ status: string }>('/api/health', { signal: controller.signal })
+        if (!disposed) {
+          const ready = health.status === 'ok'
+          setServiceState(ready ? 'ready' : 'offline')
+          if (ready && wasOffline) {
+            void apiJson<Overview>('/api/overview', { signal: controller.signal })
+              .then((value) => { if (!disposed) setOverview(value) })
+              .catch(() => { if (!disposed && !controller.signal.aborted) setError('无法连接本地 API。请先启动后端服务。') })
+            void apiJson<Contact[]>('/api/contacts', { signal: controller.signal })
+              .then((value) => { if (!disposed) setContacts(value) })
+              .catch(() => { if (!disposed && !controller.signal.aborted) setError('无法读取收款人。请检查后端服务。') })
+            setError((current) => current === '无法连接本地 API。请先启动后端服务。' || current === '无法读取收款人。请检查后端服务。' ? '' : current)
+          }
+          wasOffline = !ready
+        }
+      } catch {
+        if (!disposed && !controller.signal.aborted) {
+          wasOffline = true
+          setServiceState('offline')
+        }
+      } finally {
+        checking = false
+      }
+    }
+    void checkHealth()
+    const timer = window.setInterval(() => void checkHealth(), 10_000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      controller.abort()
+    }
   }, [])
   useEffect(() => {
     const onHashChange = () => { setView(viewFromHash()); setError('') }
@@ -532,7 +574,7 @@ function App() {
         <header className="topbar"><span>VeraLane / {navigation.find((item) => item.view === view)?.label}</span><div className="topbar__actions"><span className="topbar__demo">模拟环境 · {overview?.model_status?.mode==='deepseek'?'模型可用':'规则模式'}</span><button type="button" className="topbar__toggle" aria-expanded={showInsights} onClick={() => { setShowInsights((current) => !current); setChatSize(null) }}>{showInsights ? '收起概览' : '打开概览'}</button></div></header>
         {view === 'chat' ? <>
         <section className="conversation-panel" aria-label="银行智能体对话" ref={chatPanel} style={chatSize ? { width: chatSize.width, height: chatSize.height } : undefined}>
-          <div className="conversation-panel__header"><div><h1>VeraLane 对话</h1><p>账户与操作来自模拟银行环境</p></div><span className="status-pill"><i />{overview ? '服务就绪' : error ? '连接中断' : '连接中'}</span></div>
+          <div className="conversation-panel__header"><div><h1>VeraLane 对话</h1><p>账户与操作来自模拟银行环境</p></div><span className={`status-pill ${serviceState === 'offline' ? 'status-pill--offline' : ''}`}><i />{serviceState === 'ready' ? '服务就绪' : serviceState === 'offline' ? '连接中断' : '连接中'}</span></div>
           <div className="thread">
             {messages.map((item) => (
               <div className={`message message--${item.role}`} key={item.id}>

@@ -129,6 +129,8 @@ Windows 需要 Python 3.11+、uv、Node.js 20.19+（或 22.12+）、npm：
 
 默认只监听 `127.0.0.1:8000`，构建 React 后由 FastAPI 提供前端与 API。`.env` 不覆盖；首次没有配置文件时从 `.env.example` 复制。演示启动默认把 OpenBLAS、OMP 和 MKL 线程限制为 1，减少 OCR/NumPy 的线程与内存占用；可用 `-BlasThreads 2` 调整为 2（支持 1–16）。开发时分别运行 `uv run --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` 和 `npm run dev`。部署/源码步骤参照根目录 README。
 
+聊天工作台启动后每 10 秒只读检查一次本地 `/api/health`：可自动反映后端断连与恢复，不刷新页面也能更新连接状态。断连后恢复时会重新读取概览和联系人，并清除对应的启动连接错误；其他业务错误不会被自动清掉。健康检查不读取账本、不触发模型调用。
+
 账单默认保留近期演示交易。需要展示跨年比较时，可停止服务、备份当前数据库，再运行 `uv run --frozen --env-file ../.env python -m app.demo_history --database ..\data\veralane.sqlite3 --confirm-fictional-history`。该显式工具向指定的已初始化数据库追加 32 笔 2025-12 至 2026-07 的虚构历史交易；不调整余额，不删除已有交易，可重复运行而不重复插入。若配置了其他 `VERALANE_DB_PATH`，命令行目标须与之相同。
 
 `TrustedHostMiddleware` 对所有请求限制 `Host` 为 `localhost`、`127.0.0.1` 或 `[::1]`，避免外站域名通过 DNS 重绑定读取本机 API。所有带浏览器 `Origin` 的写请求再经过来源检查：只允许本地开发 UI 的固定来源，或 `localhost`/回环地址上的当前同源请求；跨站写请求返回 403。无 `Origin` 的命令行与服务端调用仍可使用 API，因此来源校验不是身份认证或完整 CSRF 解决方案。CORS 白名单与服务端来源检查保持相同的本地开发 UI 范围。

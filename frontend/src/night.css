@@ -38,6 +38,8 @@ body, #root { background: var(--vl-canvas); color: var(--vl-ink); }
 .conversation-panel__header p { color: var(--vl-muted); font-size: 12px; }
 .status-pill { color: #b8d6ff; background: #1b3657; border-color: #35567e; border-radius: 5px; font-size: 11px; }
 .status-pill i { background: var(--vl-blue); }
+.status-pill--offline { color: #ffc1c1; background: #44232d; border-color: #75404e; }
+.status-pill--offline i { background: #ef7373; }
 .thread { padding: 24px 24px 14px; }
 .message { gap: 11px; margin-bottom: 23px; }
 .avatar { width: 32px; height: 32px; border-radius: 7px 7px 7px 2px; background: #28466c; color: #dceaff; }
