@@ -60,9 +60,18 @@ function SubscriptionPanelContent({ sessionId, onChanged }: SubscriptionPanelPro
   useEffect(() => {
     const controller = new AbortController()
     reads.current = controller
-    Promise.all([request<Data['diagnostics']>('/api/subscriptions/diagnostics', controller.signal), request<Data['reminders']>(`/api/reminders?session_id=${encodeURIComponent(sessionId)}`, controller.signal)])
-      .then(([diagnostics, reminders]) => { if (!controller.signal.aborted) { setData({ diagnostics, reminders }); setLoadError('') } })
-      .catch((cause: unknown) => { if (!controller.signal.aborted) setLoadError(cause instanceof Error ? cause.message : '无法读取订阅记录。') })
+    void (async () => {
+      try {
+        await request<{ created: number }>('/api/reminders/refresh', controller.signal, { session_id: sessionId })
+        const [diagnostics, reminders] = await Promise.all([
+          request<Data['diagnostics']>('/api/subscriptions/diagnostics', controller.signal),
+          request<Data['reminders']>(`/api/reminders?session_id=${encodeURIComponent(sessionId)}`, controller.signal),
+        ])
+        if (!controller.signal.aborted) { setData({ diagnostics, reminders }); setLoadError('') }
+      } catch (cause) {
+        if (!controller.signal.aborted) setLoadError(cause instanceof Error ? cause.message : '无法读取订阅记录。')
+      }
+    })()
     return () => controller.abort()
   }, [sessionId, revision])
   useEffect(() => () => { reads.current?.abort(); writes.current?.abort() }, [])

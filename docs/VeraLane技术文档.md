@@ -23,7 +23,7 @@ flowchart LR
   R --> F
 ```
 
-后端以 FastAPI + SQLite 实现。各场景模块通过 `init_schema(conn)` 创建自己的表；资金执行在 `BEGIN IMMEDIATE` 写事务中提交，多人结算计划创建/逐笔授权及会生成提醒的查询会在读取前取得写锁，避免并发调度下的读写锁升级冲突。后台任务每两秒先只读检查共享事件队列，没有到期事件时不申请写锁；发现到期事件后再进入原子写事务并复核。开发时 Vite `/api` 代理至 8000；演示构建后 FastAPI 只挂载 `frontend/dist` 静态目录，API 注册在静态挂载之前。部署脚本绑定 `127.0.0.1`，不面向公网。
+后端以 FastAPI + SQLite 实现。各场景模块通过 `init_schema(conn)` 创建自己的表；资金执行在 `BEGIN IMMEDIATE` 写事务中提交，多人结算计划创建与逐笔授权在写事务中完成。提醒列表 GET 只读；显式 POST `/api/reminders/refresh` 在写事务中幂等生成到期续费与 AA 站内提醒，预约 AA 提醒则由业务时钟推进任务生成。后台任务每两秒先只读检查共享事件队列，没有到期事件时不申请写锁；发现到期事件后再进入原子写事务并复核。开发时 Vite `/api` 代理至 8000；演示构建后 FastAPI 只挂载 `frontend/dist` 静态目录，API 注册在静态挂载之前。部署脚本绑定 `127.0.0.1`，不面向公网。
 
 | 模块 | 责任 |
 | --- | --- |
@@ -48,7 +48,8 @@ flowchart LR
 | `/api/transfers` | `/prepare`、联系人消歧、`/recurring/*` 有限周期、`/batch/*` 多收款人草稿/确认 |
 | `/api/aa` | `/interpret`、`/preview`、`/prepare`、收款单查询/关闭、显式模拟付款、`/installments` 分次回款、`/requests/{request_id}/refund/prepare` 回款退款；预览/建单可选择 `itemized_items` 按菜品分摊；多人结算支持 `/settlements/preview`、`/prepare`、保存计划查询和 `/settlements/{settlement_id}/legs/{leg_id}/prepare` 逐笔本人授权 |
 | `/api/insights`、`/api/bills` | 账单问答/报告与 CSV、JSON 导出 |
-| `/api/subscriptions` | `/diagnostics`、`/prepare-batch`、提醒与逐项协议取消 |
+| `/api/subscriptions` | `/diagnostics`、`/prepare-batch` 与逐项协议取消 |
+| `/api/reminders` | GET 只读列表；POST `/refresh` 显式生成；POST `/{reminder_id}/read` 标记已读 |
 | `/api/plans` | 支出计划预览、版本选择、授权准备、失效、执行与取消 |
 | `/api/aliases` | 昵称解释、显式保存/删除草稿、丢弃旧授权 |
 | `/api/cards` | 卡片快照、变更预览、模拟刷卡、申请、审批、发卡 |

@@ -65,8 +65,12 @@ def test_batch_partial_preserves_state_change(client):
 
 def test_reminders_deduplicated_and_read_persisted(client):
     one=client.get('/api/reminders',params={'session_id':'s'}).json()['items']
+    assert one == []
+    assert client.post('/api/reminders/refresh', json={'session_id':'s'}).json()['created'] == 2
+    one=client.get('/api/reminders',params={'session_id':'s'}).json()['items']
     two=client.get('/api/reminders',params={'session_id':'s'}).json()['items']
     assert one==two and len(one)==2
+    assert client.post('/api/reminders/refresh', json={'session_id':'s'}).json()['created'] == 0
     assert client.post(f"/api/reminders/{one[0]['id']}/read",json={'session_id':'s'}).status_code==200
     assert client.get('/api/reminders',params={'session_id':'s'}).json()['items'][0]['read_at']
 

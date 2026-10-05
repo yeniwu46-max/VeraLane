@@ -143,16 +143,25 @@ def post_batch(request: BatchRequest):
 
 @router.get('/reminders')
 def get_reminders(session_id: str = Query(min_length=1, max_length=100)):
-    with db_session(immediate=True) as conn:
-        refresh_reminders(conn)
-        from .aa import refresh_aa_reminders
-        refresh_aa_reminders(conn)
+    with db_session() as conn:
         rows = conn.execute("""SELECT r.*,
             CASE WHEN r.kind='aa_collection' THEN c.status ELSE s.status END AS source_status
             FROM reminders r LEFT JOIN subscriptions s ON r.kind='renewal' AND r.source_id=s.id
             LEFT JOIN aa_collections c ON r.kind='aa_collection' AND r.source_id=c.id
             WHERE r.account_id=? ORDER BY r.due_on,r.id""", (ACCOUNT_ID,)).fetchall()
         return {'items': [dict(r) for r in rows], 'as_of': business_date(conn)}
+
+
+@router.post('/reminders/refresh')
+def post_refresh_reminders(request: ReadRequest):
+    """Create due in-app reminders explicitly; listing reminders remains read-only."""
+    with db_session(immediate=True) as conn:
+        before = conn.execute("SELECT COUNT(*) FROM reminders WHERE account_id=?", (ACCOUNT_ID,)).fetchone()[0]
+        refresh_reminders(conn)
+        from .aa import refresh_aa_reminders
+        refresh_aa_reminders(conn)
+        after = conn.execute("SELECT COUNT(*) FROM reminders WHERE account_id=?", (ACCOUNT_ID,)).fetchone()[0]
+        return {'created': after - before}
 
 
 @router.post('/reminders/{reminder_id}/read')
