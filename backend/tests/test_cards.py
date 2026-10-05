@@ -142,6 +142,9 @@ def test_missing_card_requires_explicit_lock_or_loss_choice():
     '不要给6018卡挂失',
     '6018卡怎么挂失',
     '如何正式挂失6018卡',
+    '6018卡不用挂失',
+    '我不想给6018卡挂失',
+    '怎么处理6018卡找不到',
 ])
 def test_card_help_and_negative_requests_do_not_prepare_operations(message):
     result = cards.interpret('owner', message)

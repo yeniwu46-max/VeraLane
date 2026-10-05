@@ -17,9 +17,9 @@ PRODUCTS = [
     {"id": "credit", "name": "Vera 青年信用卡", "condition": "填写虚构月收入；模拟审批仅返回状态，不自动发卡", "fee_yuan": "0.00"},
 ]
 
-_CARD_HELP_CUE = re.compile(r'怎么|如何|怎样|流程|步骤|教程|操作方法')
-_CARD_OPERATION_CUE = re.compile(r'锁卡|冻结|挂失|解锁|找到了|关闭线上|禁止线上|开启线上|恢复线上|支付限额|提额|申请卡')
-_CARD_NEGATION_CUE = re.compile(r'不要|别|不需要|无需|不必|暂时不|先不|先别|暂不|取消|免得')
+_CARD_HELP_CUE = re.compile(r'怎么|如何|怎样|怎么办|流程|步骤|教程|操作方法|请问|咨询')
+_CARD_OPERATION_CUE = re.compile(r'锁卡|冻结|挂失|解锁|找到了|找不到|丢了|遗失|不见了|关闭线上|禁止线上|开启线上|恢复线上|支付限额|提额|申请卡')
+_CARD_NEGATION_CUE = re.compile(r'不要|别|不需要|不用|不想|不打算|不准备|不愿|无需|不必|没必要|暂时不|先不|先别|暂不|暂缓|取消|免得|拒绝|等等')
 
 
 def init_schema(conn):
