@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import Decimal
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from app import agent, db, model_budget as budget
+from app.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +35,8 @@ def messages():
 def rows():
     conn = db.connect()
     try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='model_attempts'").fetchone():
+            return []
         return [dict(row) for row in conn.execute("SELECT * FROM model_attempts")]
     finally:
         conn.close()
@@ -83,6 +88,45 @@ def test_no_key_uses_rules_without_making_accounting_claims():
     status = budget.get_model_status()
     assert status["usage"]["attempts"] == 0
     assert status["usage"]["estimated_cost_yuan"] is None
+    assert not db.DB_PATH.exists()
+
+
+def test_status_reads_expired_reservation_without_writing_or_creating_schema():
+    reservation = budget.reserve_call(budget.load_config(), messages())
+    assert reservation.attempt_id
+    conn = db.connect()
+    try:
+        conn.execute("UPDATE model_attempts SET lease_until=? WHERE id=?", (time.time() - 1, reservation.attempt_id))
+    finally:
+        conn.close()
+    before = rows()
+
+    status = budget.get_model_status()
+
+    assert status["last_attempt_status"] == "unknown"
+    assert status["last_fallback_reason"] == "interrupted_or_timeout"
+    assert status["usage"]["active_requests"] == 0
+    assert status["usage"]["failed_attempts"] == 1
+    assert rows() == before
+
+
+def test_overview_get_keeps_expired_model_reservation_unmodified():
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        reservation = budget.reserve_call(budget.load_config(), messages())
+        assert reservation.attempt_id
+        conn = db.connect()
+        try:
+            conn.execute("UPDATE model_attempts SET lease_until=? WHERE id=?", (time.time() - 1, reservation.attempt_id))
+        finally:
+            conn.close()
+        before = rows()
+
+        response = client.get("/api/overview")
+
+        assert response.status_code == 200
+        assert response.json()["model_status"]["last_attempt_status"] == "unknown"
+        assert response.json()["model_status"]["usage"]["active_requests"] == 0
+        assert rows() == before
 
 
 def test_configured_key_does_not_enable_network_without_explicit_opt_in(monkeypatch):

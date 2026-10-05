@@ -114,17 +114,21 @@ def _expire(conn: sqlite3.Connection) -> None:
     )
 
 
-def _summary(conn: sqlite3.Connection) -> dict[str, int]:
-    row = conn.execute("""SELECT
+def _summary(conn: sqlite3.Connection, now: float | None = None) -> dict[str, int]:
+    now = time.time() if now is None else now
+    row = conn.execute("""WITH attempts AS (
+        SELECT *, CASE WHEN status='reserved' AND lease_until < ? THEN 'unknown' ELSE status END AS effective_status
+        FROM model_attempts
+    ) SELECT
         COUNT(*) AS attempts,
-        COALESCE(SUM(status='reserved'),0) AS active_requests,
-        COALESCE(SUM(status IN ('failed','unknown')),0) AS failed_attempts,
+        COALESCE(SUM(effective_status='reserved'),0) AS active_requests,
+        COALESCE(SUM(effective_status IN ('failed','unknown')),0) AS failed_attempts,
         COALESCE(SUM(prompt_tokens IS NULL),0) AS uncertain_attempts,
         COALESCE(SUM(prompt_tokens + completion_tokens),0) AS reported_tokens,
         COALESCE(SUM(accounted_tokens),0) AS accounted_tokens,
         COALESCE(SUM(estimated_cost_microyuan),0) AS estimated_cost_microyuan,
         COALESCE(SUM(estimated_cost_microyuan IS NULL),0) AS unpriced_attempts
-        FROM model_attempts WHERE status != 'blocked'""").fetchone()
+        FROM attempts WHERE effective_status != 'blocked'""", (now,)).fetchone()
     return dict(row)
 
 
@@ -234,16 +238,40 @@ def get_model_status() -> dict[str, Any]:
     except ValueError:
         return {"mode": "offline", "reason": "invalid_model_config", "configured": configured, "notice": NOTICE}
     try:
-        conn = db.connect()
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            _schema(conn)
-            _expire(conn)
-            used = _summary(conn)
-            last = conn.execute("SELECT status,reason FROM model_attempts ORDER BY rowid DESC LIMIT 1").fetchone()
-            conn.commit()
-        finally:
-            conn.close()
+        if db.DB_PATH.is_file():
+            conn = sqlite3.connect(
+                f"{db.DB_PATH.resolve().as_uri()}?mode=ro",
+                uri=True, timeout=5, isolation_level=None,
+            )
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("PRAGMA query_only=ON")
+                conn.execute("BEGIN")
+                has_table = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='model_attempts'"
+                ).fetchone()
+                now = time.time()
+                if has_table:
+                    used = _summary(conn, now)
+                    last = conn.execute("SELECT status,reason,lease_until FROM model_attempts ORDER BY rowid DESC LIMIT 1").fetchone()
+                    if last and last["status"] == "reserved" and last["lease_until"] < now:
+                        last_status, last_reason = "unknown", "interrupted_or_timeout"
+                    else:
+                        last_status, last_reason = (last["status"], last["reason"]) if last else (None, None)
+                else:
+                    used = {"attempts": 0, "active_requests": 0, "failed_attempts": 0,
+                            "uncertain_attempts": 0, "reported_tokens": 0, "accounted_tokens": 0,
+                            "estimated_cost_microyuan": 0, "unpriced_attempts": 0}
+                    last_status = last_reason = None
+                conn.commit()
+            finally:
+                conn.close()
+        else:
+            used = {"attempts": 0, "active_requests": 0, "failed_attempts": 0,
+                    "uncertain_attempts": 0, "reported_tokens": 0, "accounted_tokens": 0,
+                    "estimated_cost_microyuan": 0, "unpriced_attempts": 0}
+            last_status = last_reason = None
     except (sqlite3.Error, OSError):
         return {"mode": "offline", "reason": "accounting_unavailable", "configured": configured, "notice": NOTICE}
     pricing = config.input_price is not None
@@ -268,8 +296,8 @@ def get_model_status() -> dict[str, Any]:
     return {
         "mode": "offline" if reason else "deepseek", "reason": reason,
         "configured": configured, "model": config.model, "pricing_configured": pricing,
-        "last_attempt_status": last["status"] if last else None,
-        "last_fallback_reason": last["reason"] if last else None,
+        "last_attempt_status": last_status,
+        "last_fallback_reason": last_reason,
         "usage": {**used, "estimated_cost_yuan": f"{Decimal(cost) / 1_000_000:.6f}" if pricing and not used["unpriced_attempts"] else None},
         "limits": {"max_calls": config.max_calls, "max_total_tokens": config.max_total_tokens,
                    "max_inflight": config.max_inflight, "max_output_tokens": config.max_output_tokens,
