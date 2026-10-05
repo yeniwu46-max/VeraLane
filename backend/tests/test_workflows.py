@@ -255,7 +255,7 @@ def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == balance
 
 
-def test_negation_withdraws_pending_transfer_action_and_does_not_match_reminders(client):
+def test_negation_withdraws_pending_transfer_action_and_reminders_never_execute(client):
     action = send(client, "转给林悦100元")["pending_action"]
     result = send(client, "现在不要再转给林悦了")
     assert "pending_action" not in result
@@ -263,7 +263,35 @@ def test_negation_withdraws_pending_transfer_action_and_does_not_match_reminders
     assert rejected.status_code == 409
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8888.30"
     reminder = send(client, "不要忘记转给林悦100元", session_id="positive-reminder")
-    assert reminder["pending_action"]["type"] == "transfer"
+    assert "pending_action" not in reminder
+    assert "转账提醒" in reminder["message"]
+    with db.db_session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM actions WHERE session_id='positive-reminder' AND type='transfer'").fetchone()[0] == 0
+
+
+def test_transfer_reminder_does_not_consume_or_replace_an_existing_draft(client):
+    partial = send(client, "转给林悦", session_id="transfer-reminder-draft")
+    assert "pending_action" not in partial
+
+    reminder = send(client, "提醒我明天给王明转100元", session_id="transfer-reminder-draft")
+
+    assert "pending_action" not in reminder
+    assert "转账提醒" in reminder["message"]
+    completed_draft = send(client, "300元", session_id="transfer-reminder-draft")
+    assert completed_draft["pending_action"]["details"]["recipient"] == "林悦"
+    assert completed_draft["pending_action"]["details"]["amount_yuan"] == "300.00"
+
+
+def test_transfer_reminder_does_not_cancel_an_existing_action(client):
+    action = send(client, "转给林悦100元", session_id="transfer-reminder-action")["pending_action"]
+
+    reminder = send(client, "提醒我别忘给王明转账", session_id="transfer-reminder-action")
+
+    assert "pending_action" not in reminder
+    assert "转账提醒" in reminder["message"]
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
 
 
 def test_transfer_reminder_preferences_do_not_withdraw_transfer_actions(client):

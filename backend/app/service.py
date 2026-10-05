@@ -209,8 +209,25 @@ def _withdraw_subscription_cancellations(
     return reply(message, session_id, "offline")
 
 
+_TRANSFER_REMINDER_REQUEST = re.compile(
+    r"(?:提醒|备忘|别忘(?:记|了)?|不要忘(?:记|了)?).{0,32}"
+    r"(?:转账|转给|打给|汇给|转款|转出|付给|付款|支付|打款|打钱|汇款|划款|转)"
+    r"|(?:转账|转款|转出|付款|支付|打款|汇款|划款)提醒"
+)
+
+
+def _is_transfer_reminder_request(text: str) -> bool:
+    """Keep reminder language from becoming an immediate or scheduled transfer."""
+    return bool(_TRANSFER_REMINDER_REQUEST.search(instruction_text(text)))
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
+    if _is_transfer_reminder_request(request_text):
+        return reply(
+            "我目前不支持创建、发送或管理转账提醒。这条消息不会生成或执行转账；已有的未完成转账草稿和待确认操作保持不变。",
+            session_id, "offline",
+        )
     if explicitly_declines_transfer(request_text):
         return decline_transfer_request(session_id)
     if re.search(r'少花|省下|节省|省钱|减少.{0,6}支出', request_text):
