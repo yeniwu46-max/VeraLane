@@ -41,7 +41,7 @@ def test_browser_write_requests_reject_untrusted_origins_but_allow_local_ui(clie
     rebound_host = client.post("/api/chat", json=payload, headers={
         "Origin": "https://attacker.example", "Host": "attacker.example",
     })
-    assert rebound_host.status_code == 403
+    assert rebound_host.status_code == 400
 
     same_origin = client.post("/api/chat", json=payload, headers={
         "Origin": "http://localhost:8001", "Host": "localhost:8001",
@@ -50,6 +50,15 @@ def test_browser_write_requests_reject_untrusted_origins_but_allow_local_ui(clie
 
     dev_origin = client.post("/api/chat", json=payload, headers={"Origin": "http://127.0.0.1:5173"})
     assert dev_origin.status_code == 200, dev_origin.text
+
+
+def test_host_allowlist_blocks_dns_rebinding_reads_and_allows_loopback(client):
+    rebound = client.get("/api/overview", headers={"Host": "attacker.example"})
+    assert rebound.status_code == 400
+    assert rebound.headers["x-frame-options"] == "DENY"
+
+    loopback = client.get("/api/overview", headers={"Host": "127.0.0.1:8001"})
+    assert loopback.status_code == 200
 
 
 def prepared(client, path, **payload):

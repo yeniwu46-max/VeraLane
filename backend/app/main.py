@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import MutableHeaders
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import init_db, ROOT
 from .service import (
@@ -224,6 +225,12 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.add_middleware(BrowserWriteOriginMiddleware)
+# Validate every Host before serving even read-only endpoints, so a DNS-rebound
+# attacker domain cannot make the browser treat the local API as same-origin.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"],
+)
 
 
 class ChatRequest(BaseModel):
