@@ -9,18 +9,20 @@ import io
 import json
 import asyncio
 import logging
+import sqlite3
 from ipaddress import ip_address
 from contextlib import asynccontextmanager
 from typing import Literal
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Response, Query
+from fastapi import FastAPI, Response, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from . import db
 from .db import init_db, ROOT
 from .service import (
     confirm_action, contact_options, direct_bill_report, direct_prepare_cancel,
@@ -316,6 +318,17 @@ class AaRefundRequest(AaOwnerRequest):
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
+    if not db.DB_PATH.is_file():
+        raise HTTPException(503, "本地模拟账本暂不可用")
+    try:
+        with db.db_session() as conn:
+            account = conn.execute("SELECT id FROM accounts WHERE id=?", (db.ACCOUNT_ID,)).fetchone()
+            conn.execute("SELECT id FROM contacts WHERE user_id=? LIMIT 0", (db.USER_ID,)).fetchall()
+            conn.execute("SELECT id FROM transactions WHERE account_id=? LIMIT 0", (db.ACCOUNT_ID,)).fetchall()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "本地模拟账本暂不可用") from exc
+    if account is None:
+        raise HTTPException(503, "本地模拟账户暂不可用")
     return {"status": "ok"}
 
 

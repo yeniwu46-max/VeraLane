@@ -1,6 +1,7 @@
 """Final shared-boundary regression; feature algorithms have their own tests."""
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,35 @@ def test_host_allowlist_blocks_dns_rebinding_reads_and_allows_loopback(client):
 
     loopback = client.get("/api/overview", headers={"Host": "127.0.0.1:8001"})
     assert loopback.status_code == 200
+
+
+def test_health_requires_readable_core_ledger_without_creating_a_missing_database(client, tmp_path, monkeypatch):
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+    absent = tmp_path / "absent.sqlite3"
+    monkeypatch.setattr(db, "DB_PATH", absent)
+    response = client.get("/api/health")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "本地模拟账本暂不可用"}
+    assert not absent.exists()
+
+
+@pytest.mark.parametrize("missing_table", ["accounts", "contacts", "transactions"])
+def test_health_rejects_databases_missing_core_tables(client, tmp_path, monkeypatch, missing_table):
+    path = tmp_path / f"missing-{missing_table}.sqlite3"
+    with sqlite3.connect(path) as conn:
+        if missing_table != "accounts":
+            conn.execute("CREATE TABLE accounts (id TEXT PRIMARY KEY)")
+            conn.execute("INSERT INTO accounts (id) VALUES (?)", (db.ACCOUNT_ID,))
+        if missing_table != "contacts":
+            conn.execute("CREATE TABLE contacts (id TEXT PRIMARY KEY, user_id TEXT)")
+        if missing_table != "transactions":
+            conn.execute("CREATE TABLE transactions (id TEXT PRIMARY KEY, account_id TEXT)")
+    monkeypatch.setattr(db, "DB_PATH", path)
+
+    response = client.get("/api/health")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "本地模拟账本暂不可用"}
 
 
 def prepared(client, path, **payload):
