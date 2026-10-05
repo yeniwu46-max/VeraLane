@@ -722,6 +722,34 @@ def test_subscription_cancel_requires_confirmation(client):
     assert next(row for row in subscriptions if row["id"] == "sub-cloud")["status"] == "cancelled"
 
 
+def test_subscription_how_to_question_does_not_prepare_cancellation(client):
+    question = send(client, "怎么取消云影会员自动续费？", session_id="subscription-help")
+
+    assert "pending_action" not in question
+    assert "转账流程咨询" not in question["message"]
+    assert "代扣" in question["message"] or "订阅" in question["message"]
+    with db.db_session() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM actions WHERE session_id='subscription-help' AND type='subscription_cancel'"
+        ).fetchone()[0]
+    assert count == 0
+    subscriptions = client.get("/api/overview").json()["subscriptions"]
+    assert next(row for row in subscriptions if row["id"] == "sub-cloud")["status"] == "active"
+
+
+def test_subscription_how_to_question_preserves_existing_cancellation(client):
+    action = send(client, "取消云影会员自动续费", session_id="subscription-help-pending")["pending_action"]
+
+    question = send(client, "如何取消订阅？", session_id="subscription-help-pending")
+
+    assert "pending_action" not in question
+    assert "转账流程咨询" not in question["message"]
+    assert "代扣" in question["message"] or "订阅" in question["message"]
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+
 def test_subscription_cancel_refusal_prevents_and_withdraws_pending_action(client):
     refused = send(client, "先别取消云影会员，只查扣款记录")
     assert "pending_action" not in refused

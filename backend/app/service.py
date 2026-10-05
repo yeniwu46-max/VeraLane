@@ -148,6 +148,8 @@ _SUBSCRIPTION_CANCEL_REFUSAL = re.compile(
     r"(?:先别|暂时别|暂不|先不|不要|别|不必|不需要|无需|不用).{0,4}(?:取消|关闭|停掉|终止|解约)"
     r"|不想\s*(?:现在|马上|再)?\s*(?:取消|关闭|停掉|终止|解约)"
 )
+_SUBSCRIPTION_CANCEL_HOW_TO = re.compile(r"怎么|如何|怎样|流程|步骤|教程|操作方法")
+_SUBSCRIPTION_CANCEL_OPERATION = re.compile(r"取消|关闭|停掉|终止|退订|解约")
 _DEFERRED_SUBSCRIPTION_CANCEL = re.compile(
     r"(?:下次|下个月|下月|下一次|到期|扣款|扣费|续费).{0,12}(?:后|以后|之后).{0,6}(?:再|才)?(?:取消|关闭|停掉|终止|解约)"
 )
@@ -225,7 +227,7 @@ def _is_transfer_reminder_request(text: str) -> bool:
 
 _TRANSFER_HOW_TO_REQUEST = re.compile(
     r"(?:(?:怎么(?!回事)|如何|怎样)[\s\S]{0,20}"
-    r"(?:转账|转给|打给|汇给|付款|支付|取消|撤销)"
+    r"(?:转账|转给|打给|汇给|付款|支付)"
     r"|(?:转账|转给|付款|支付)[\s\S]{0,10}"
     r"(?:流程|步骤|规则|教程|怎么操作|如何操作))"
 )
@@ -290,6 +292,12 @@ async def process_message(session_id: str, message: str) -> dict[str, Any]:
     if (has_subscription_subject and _FUTURE_SUBSCRIPTION_MARKER.search(request_text)
             and _DEFERRED_SUBSCRIPTION_CANCEL.search(request_text)):
         return _withdraw_subscription_cancellations(session_id, request_text, all_subscription_names, deferred=True)
+    if (has_subscription_subject and _SUBSCRIPTION_CANCEL_OPERATION.search(request_text)
+            and _SUBSCRIPTION_CANCEL_HOW_TO.search(request_text)):
+        return reply(
+            "这是订阅/代扣取消流程咨询，不会创建或撤销取消操作。若要立即取消，请明确说“现在取消云影会员”；系统会先展示协议和续费信息，再由你确认。已有草稿、待确认操作及订阅状态保持不变。",
+            session_id, "offline",
+        )
     from .bill_preferences import parse_chat_classification_correction
     correction = parse_chat_classification_correction(request_text)
     if correction:
