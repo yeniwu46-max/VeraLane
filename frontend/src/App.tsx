@@ -261,11 +261,11 @@ function Provenance({ reply }: { reply: AgentReply }) {
   return <details className="provenance">
     <summary>
       <span className={`provenance__badge ${aiUsed ? 'provenance__badge--ai' : ''}`}>{aiUsed ? 'AI' : '规则'}</span>
-      <span>{aiUsed ? 'DeepSeek 识别意图' : '本地规则识别意图'} · 银行工具核验</span>
+      <span>{aiUsed ? 'DeepSeek 识别意图' : '本地规则识别意图'} · 模拟银行工具核验</span>
       <span className="provenance__more">查看处理依据</span>
     </summary>
     <div className="provenance__detail">
-      <p>{aiUsed ? 'DeepSeek 用于理解你的自然语言需求；账户余额、交易与操作权限由银行工具核验。' : '本地规则识别当前需求；账户余额、交易与操作权限由银行工具核验。'}</p>
+      <p>{aiUsed ? 'DeepSeek 用于理解你的自然语言需求；账户余额、交易与操作权限由本地模拟银行工具核验。' : '本地规则识别当前需求；账户余额、交易与操作权限由本地模拟银行工具核验。'}</p>
       {reply.report && <p>账单统计来自 {reply.report.transaction_ids.length} 笔模拟交易，交易编号：{reply.report.transaction_ids.join('、') || '无'}。</p>}
       {reply.pending_action && <p>已生成待确认计划（{reply.pending_action.tier === 'red' ? '强验证拦截' : '需用户确认'}）。点击执行前会再次校验。</p>}
       <p>当前演示使用虚构账户与交易数据。</p>
