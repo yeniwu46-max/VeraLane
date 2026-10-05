@@ -176,7 +176,7 @@ export function AaEditor({ sessionId, contacts, seed, onCreated }: {
   return <section className="aa-editor" aria-labelledby="aa-editor-heading" aria-busy={busy}>
     <header className="aa-section-head"><div><h2 id="aa-editor-heading">一起消费，分得清楚</h2><p>描述垫付金额和参与者，核对后生成 AA 收款单。</p></div><span className="aa-step">01 / 分账</span></header>
     {source && <div className="aa-source"><div><strong>已引用原始支出 · {source.counterparty}</strong><span>{source.posted_on} · {aaMoney(source.amount_yuan)} · {source.id}</span></div><button type="button" className="aa-quiet" disabled={busy} onClick={() => { invalidate(); setSource(null); setHasConversation(false); setMessage(''); setNeedsReview([]) }}>移除引用</button></div>}
-    <form className="smart-transfer-form" onSubmit={(event) => void interpret(event)}>
+    <form autoComplete="off" className="smart-transfer-form" onSubmit={(event) => void interpret(event)}>
       <label htmlFor="aa-input">一句话描述或补充信息</label>
       <textarea id="aa-input" rows={2} maxLength={500} disabled={busy} value={input} placeholder={source ? '这笔支出我和林悦均分' : '聚餐我垫了368.50元，我、林悦、王明、陈晨四个人AA'} onChange={(event) => setInput(event.target.value)} />
       <div className="smart-transfer-form__footer"><span>可以继续回答追问，也可在下方手动填写。</span><button type="submit" disabled={busy || !input.trim()}>{busy ? '正在处理…' : hasConversation ? '补充并更新草稿 ↗' : '理解分账需求 ↗'}</button></div>

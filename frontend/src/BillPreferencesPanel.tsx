@@ -84,7 +84,7 @@ function Content({ sid, period, onChanged }: Props) {
     {data ? <>
       <p className="bill-preferences__muted">{data.notice}</p>
       <div className="bill-preferences__editors">
-        <form onSubmit={classificationSubmit}>
+        <form autoComplete="off" onSubmit={classificationSubmit}>
           <h3>纠正一笔支出的分类</h3>
           <label>交易记录<select aria-label="需要归类的交易" value={transactionId} disabled={disabled} onChange={(event) => { const item = data.transactions.find((transaction) => transaction.id === event.target.value); setTransactionId(event.target.value); setCategory(item?.category || ''); setReason('') }}><option value="">选择当前报告中的交易</option>{data.transactions.map((transaction) => <option key={transaction.id} value={transaction.id}>{transaction.posted_on} · {transaction.counterparty} · {currency(transaction.amount_yuan)}</option>)}</select></label>
           {selected && <p className="bill-preferences__muted">原始分类：{selected.original_category}；当前统计：{selected.category}{selected.classification_reason && `；原因：${selected.classification_reason}`}</p>}
@@ -93,7 +93,7 @@ function Content({ sid, period, onChanged }: Props) {
           <label>修正原因<input aria-label="归类修正原因" maxLength={200} placeholder="例如：这笔是出差交通" value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></label>
           <button className="page-primary" disabled={disabled || !transactionId || !category.trim() || !reason.trim()}>核对分类修改</button>
         </form>
-        <form onSubmit={budgetSubmit}>
+        <form autoComplete="off" onSubmit={budgetSubmit}>
           <h3>{data.current_month} 月度预算</h3>
           <label>消费分类<select aria-label="预算消费分类" value={budgetCategory} disabled={disabled} onChange={(event) => setBudgetCategory(event.target.value)}><option value="">全部支出</option>{data.categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
           <label>预算金额（元）<input aria-label="月度预算金额" inputMode="decimal" value={budgetAmount} disabled={disabled} placeholder="例如：1500.00" onChange={(event) => setBudgetAmount(event.target.value)} /></label>

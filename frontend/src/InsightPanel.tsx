@@ -126,7 +126,7 @@ function InsightPanelContent({ sessionId, period, initialQuestion, onTransaction
   const reply = current?.reply
   return <section className="bill-insight" aria-labelledby={`${inputId}-title`}>
     <div className="bill-insight__heading"><h2 id={`${inputId}-title`}>智能账单洞察</h2><span>规则解析 · 精确计算</span></div>
-    <form className="bill-insight__form" onSubmit={submit}>
+    <form autoComplete="off" className="bill-insight__form" onSubmit={submit}>
       <label htmlFor={inputId}>想查哪笔支出，或了解什么变化？</label>
       <div className="bill-insight__input"><input id={inputId} value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={500} placeholder={`${period}餐饮花了多少？`} /><button type="submit" disabled={!question.trim()}>查询</button></div>
     </form>

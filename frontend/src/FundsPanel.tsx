@@ -43,7 +43,7 @@ export function FundsPanel({sessionId,onChanged}:{sessionId:string;onChanged:()=
     <header><h2>资金预留</h2><button className="page-secondary" onClick={()=>changed()}>刷新</button></header>
     <div className="funds-totals"><span>账面余额<strong>¥{data?.balance_yuan??'—'}</strong></span><span>可用余额<strong>¥{data?.available_yuan??'—'}</strong></span><span>有效预留<strong>¥{data?.reserved_yuan??'—'}</strong></span></div>
     <p>预留只减少可用余额；释放不增加账面余额。账户所有转出工具共用此规则。</p>
-    <form onSubmit={e=>{e.preventDefault();void prepare('/api/funds/reservations/prepare',{amount_yuan:amount,purpose})}} className="funds-form">
+    <form autoComplete="off" onSubmit={e=>{e.preventDefault();void prepare('/api/funds/reservations/prepare',{amount_yuan:amount,purpose})}} className="funds-form">
       <label>预留用途<input required value={purpose} maxLength={100} placeholder="如生日预算" onChange={e=>setPurpose(e.target.value)}/></label>
       <label>金额（元）<input required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
       <button className="page-secondary" disabled={busy}>生成预留计划</button>

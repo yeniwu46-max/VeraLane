@@ -607,8 +607,8 @@ function App() {
           <div className="composer-wrap">
             {error && <p className="error-banner" role="alert">{error}</p>}
             <div className="suggestions">{suggestions.map((item) => <button type="button" onClick={() => void sendMessage(item.prompt)} disabled={busy} key={item.label}>{item.label}</button>)}</div>
-            <form className="composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(draft) }}>
-              <input aria-label="输入银行业务需求" placeholder="例如：转给林悦300元，备注房租" maxLength={500} value={draft} onChange={(event) => setDraft(event.target.value)} />
+            <form className="composer" autoComplete="off" onSubmit={(event) => { event.preventDefault(); void sendMessage(draft) }}>
+              <input name="banking_intent" autoComplete="off" aria-label="输入银行业务需求" placeholder="例如：转给林悦300元，备注房租" maxLength={500} value={draft} onChange={(event) => setDraft(event.target.value)} />
               <button type="submit" disabled={busy || !draft.trim()}>发送 <span>↗</span></button>
             </form>
           </div>
@@ -624,9 +624,9 @@ function App() {
             {overview?.demo_now && <p className="transfer-clock">当前演示时间：{formatBankTime(overview.demo_now)}（北京时间） · “明天”等表达以此为准</p>}
             <section className="smart-transfer-card">
               <div className="smart-transfer-card__head"><div><span>自然语言入口</span><h2>一句话，生成转账计划</h2></div><strong>01 / 理解并核验</strong></div>
-              <form className="smart-transfer-form" onSubmit={(event) => void submitSmartTransfer(event)}>
+              <form className="smart-transfer-form" autoComplete="off" onSubmit={(event) => void submitSmartTransfer(event)}>
                 <label htmlFor="smart-transfer-input">描述你要办理的转账</label>
-                <textarea id="smart-transfer-input" rows={2} maxLength={500} placeholder="例如：转给林悦 300 元，备注房租" value={smartTransferInput} onChange={(event) => setSmartTransferInput(event.target.value)} />
+                <textarea id="smart-transfer-input" name="transfer_intent" autoComplete="off" rows={2} maxLength={500} placeholder="例如：转给林悦 300 元，备注房租" value={smartTransferInput} onChange={(event) => setSmartTransferInput(event.target.value)} />
                 <div className="smart-transfer-form__footer"><span>姓名或完整手机号均可；不会直接扣款。</span><button type="submit" disabled={busy || !smartTransferInput.trim()}>{busy ? '正在理解…' : '理解并生成计划 ↗'}</button></div>
               </form>
               <div className="smart-examples"><span>试试</span><button type="button" onClick={() => setSmartTransferInput('明天晚上8点给林悦转300元，备注房租')}>预约明晚转账</button><button type="button" onClick={() => setSmartTransferInput('转给林悦 300 元，备注房租')}>立即转账</button><button type="button" onClick={() => setSmartTransferInput('明天转给王明100元，备注聚餐')}>补齐预约信息</button></div>
@@ -637,10 +637,10 @@ function App() {
             <SchedulePanel sessionId={sessionId} revision={scheduleRevision} onChanged={() => void refreshOverview()} />
             <AliasPanel sessionId={sessionId} onChanged={refreshOverview} />
             <details className="manual-transfer"><summary>手动填写转账信息 <span>备选方式</span></summary><div className="manual-transfer__content">
-                <form className="transfer-form" onSubmit={(event) => void prepareDirectTransfer(event)}>
-                  <label>收款人<select aria-label="选择收款人" required value={transferContactId} onChange={(event) => { setTransferContactId(event.target.value); setTransferAction(null); setTransferNotice('') }}><option value="">请选择收款人</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
-                  <label>转账金额 <small>人民币</small><input aria-label="转账金额" required inputMode="decimal" placeholder="例如 300.00" value={transferAmount} onChange={(event) => { setTransferAmount(event.target.value); setTransferAction(null); setTransferNotice('') }} /></label>
-                  <label>转账备注 <small>选填</small><input aria-label="转账备注" maxLength={100} placeholder="例如 房租" value={transferNote} onChange={(event) => { setTransferNote(event.target.value); setTransferAction(null); setTransferNotice('') }} /></label>
+                <form className="transfer-form" autoComplete="off" onSubmit={(event) => void prepareDirectTransfer(event)}>
+                  <label>收款人<select name="recipient_contact" autoComplete="off" aria-label="选择收款人" required value={transferContactId} onChange={(event) => { setTransferContactId(event.target.value); setTransferAction(null); setTransferNotice('') }}><option value="">请选择收款人</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
+                  <label>转账金额 <small>人民币</small><input name="transfer_amount_yuan" autoComplete="off" aria-label="转账金额" required inputMode="decimal" placeholder="例如 300.00" value={transferAmount} onChange={(event) => { setTransferAmount(event.target.value); setTransferAction(null); setTransferNotice('') }} /></label>
+                  <label>转账备注 <small>选填</small><input name="transfer_note" autoComplete="off" aria-label="转账备注" maxLength={100} placeholder="例如 房租" value={transferNote} onChange={(event) => { setTransferNote(event.target.value); setTransferAction(null); setTransferNotice('') }} /></label>
                   <button className="page-primary" type="submit" disabled={busy || !transferContactId || !transferAmount.trim()}>{busy ? '正在核验…' : '生成转账计划'} <span>↗</span></button>
                 </form>
                 {transferNotice && <p className="page-notice" role="status">{transferNotice}</p>}

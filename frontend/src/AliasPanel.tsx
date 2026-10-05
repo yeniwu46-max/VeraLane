@@ -73,7 +73,7 @@ function AliasPanelContent({ sessionId, onChanged }: Props) {
   return <details className="alias-panel">
     <summary>联系人别名 <span>{aliases.length} 个已确认称呼</span></summary>
     <p className="alias-panel__hint">明确保存“房东 → 林悦”后，可以说“转给房东 100 元”。别名仅用于当前会话；同名联系人需核对手机号。</p>
-    <form className="alias-panel__form" onSubmit={(event) => void prepare(event)}>
+    <form autoComplete="off" className="alias-panel__form" onSubmit={(event) => void prepare(event)}>
       <label>称呼<input aria-label="联系人别名" maxLength={20} placeholder="例如：房东" value={name} disabled={busy || !!action} onChange={(event) => setName(event.target.value)} /></label>
       <label>已验证联系人<select aria-label="别名对应联系人" value={contactId} disabled={busy || !!action} onChange={(event) => setContactId(event.target.value)}><option value="">选择姓名与手机号</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name} · {contact.phone_masked}</option>)}</select></label>
       <button className="page-primary" disabled={busy || !!action || !name.trim() || !contactId}>{busy ? '处理中…' : editingId ? '核对修改' : '核对并保存'}</button>
