@@ -298,6 +298,14 @@ def test_transfer_reminder_does_not_cancel_an_existing_action(client):
     assert status == "pending"
 
 
+def test_reminder_after_a_transfer_request_is_rejected_without_creating_an_action(client):
+    result = send(client, "转给林悦300元，之后提醒我核对回执", session_id="transfer-then-reminder")
+
+    assert "pending_action" not in result
+    assert "转账提醒" in result["message"]
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8888.30"
+
+
 def test_transfer_reminder_preferences_do_not_withdraw_transfer_actions(client):
     action = send(client, "转给林悦100元")["pending_action"]
     result = send(client, "我不想收到转账提醒")
