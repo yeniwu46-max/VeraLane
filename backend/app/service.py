@@ -223,11 +223,30 @@ def _is_transfer_reminder_request(text: str) -> bool:
     return bool(_TRANSFER_REMINDER_REQUEST.search(instruction_text(text)))
 
 
+_TRANSFER_HOW_TO_REQUEST = re.compile(
+    r"(?:(?:怎么(?!回事)|如何|怎样)[\s\S]{0,20}"
+    r"(?:转账|转给|打给|汇给|付款|支付|取消|撤销)"
+    r"|(?:转账|转给|付款|支付)[\s\S]{0,10}"
+    r"(?:流程|步骤|规则|教程|怎么操作|如何操作))"
+)
+
+
+def _is_transfer_how_to_request(text: str) -> bool:
+    """Separate procedural questions from instructions to move money."""
+    command = instruction_text(text)
+    return bool(_TRANSFER_HOW_TO_REQUEST.search(command)) and not _is_transfer_history_query(command)
+
+
 async def process_message(session_id: str, message: str) -> dict[str, Any]:
     request_text = instruction_text(message)
     if _is_transfer_reminder_request(request_text):
         return reply(
             "我目前不支持创建、发送或管理转账提醒。这条消息不会生成或执行转账；已有的未完成转账草稿和待确认操作保持不变。",
+            session_id, "offline",
+        )
+    if _is_transfer_how_to_request(request_text):
+        return reply(
+            "这是转账流程咨询，我不会据此创建或撤销操作。办理转账时请明确说“转给林悦300元”，系统会先生成待确认计划；撤回未确认操作可明确说“不要转账”，已确认预约请在“我的预约”中取消。已有草稿和待确认操作保持不变。",
             session_id, "offline",
         )
     if explicitly_declines_transfer(request_text):

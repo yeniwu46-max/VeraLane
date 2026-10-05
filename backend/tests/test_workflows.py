@@ -255,6 +255,27 @@ def test_explicitly_negated_transfer_never_creates_a_pending_action(client):
     assert client.get("/api/overview").json()["account"]["balance_yuan"] == balance
 
 
+def test_how_to_cancel_question_does_not_revoke_a_pending_transfer(client):
+    action = send(client, "转给林悦100元", session_id="cancel-help") ["pending_action"]
+
+    question = send(client, "怎么取消转账？", session_id="cancel-help")
+
+    assert "pending_action" not in question
+    with db.db_session() as conn:
+        status = conn.execute("SELECT status FROM actions WHERE id=?", (action["id"],)).fetchone()["status"]
+    assert status == "pending"
+
+
+def test_how_to_transfer_question_does_not_create_a_transfer(client):
+    question = send(client, "如何给林悦转账300元？", session_id="transfer-help")
+
+    assert "pending_action" not in question
+    with db.db_session() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM actions WHERE session_id='transfer-help' AND type='transfer'").fetchone()[0]
+    assert count == 0
+    assert client.get("/api/overview").json()["account"]["balance_yuan"] == "8888.30"
+
+
 def test_negation_withdraws_pending_transfer_action_and_reminders_never_execute(client):
     action = send(client, "转给林悦100元")["pending_action"]
     result = send(client, "现在不要再转给林悦了")
