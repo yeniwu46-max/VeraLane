@@ -42,15 +42,15 @@
   "online_evaluation_2026_10_05": {
     "scope": "仅发送合成的余额查询、账单查询和转账意图文本；直接调用意图解析器，不读取真实账户资料、不执行银行工具。",
     "authorized_max_requests": 3,
-    "requests_sent": 2,
-    "successful_model_responses": 0,
+    "requests_sent": 3,
+    "successful_model_responses": 1,
     "attempts": [
       { "case": "balance", "http_status": 401, "result_mode": "offline", "fallback_reason": "model_http_error" },
       { "case": "bills", "http_status": 401, "result_mode": "offline", "fallback_reason": "model_http_error" },
-      { "case": "transfer", "request_sent": false, "result_mode": "offline", "fallback_reason": "token_limit" }
+      { "case": "transfer", "http_status": 200, "result_mode": "deepseek", "parsed_action": "transfer", "amount_yuan": "300", "recipient_and_note_match": "unverified_due_to_terminal_encoding", "latency_ms": 1077, "usage": { "prompt_tokens": 469, "completion_tokens": 21 } }
     ],
-    "reported_provider_usage": null,
+    "reported_provider_usage": { "successful_response_total_tokens": 490, "failed_response_usage_unavailable": true },
     "model_quality_score": null,
-    "notice": "两次请求均鉴权失败，未形成真实模型质量样本。第三条因本地 token 预算保护而未发送；离线规则返回符合预期不能计为模型成功。"
+    "notice": "前两次请求鉴权失败并规则回退；第三次返回可解析响应，但 Windows 终端中文字段显示乱码，收款人和备注精确匹配未核实。仅一个成功样本不足以估算模型准确率；规则回退不能计为模型成功。"
   }
 }
