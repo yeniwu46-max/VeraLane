@@ -142,7 +142,7 @@ Windows 需要 Python 3.11+、uv、Node.js 20.19+（或 22.12+）、npm：
 
 `TrustedHostMiddleware` 对所有请求限制 `Host` 为 `localhost`、`127.0.0.1` 或 `[::1]`，避免外站域名通过 DNS 重绑定读取本机 API。所有带浏览器 `Origin` 的写请求再经过来源检查：只允许本地开发 UI 的固定来源，或 `localhost`/回环地址上的当前同源请求；跨站写请求返回 403。无 `Origin` 的命令行与服务端调用仍可使用 API，因此来源校验不是身份认证或完整 CSRF 解决方案。CORS 白名单与服务端来源检查保持相同的本地开发 UI 范围。
 
-最外层 ASGI 响应包装器对正常页面/API、404 和框架生成的 500 响应统一添加 CSP（仅同源脚本与连接、禁止对象和嵌入）、`nosniff`、`X-Frame-Options: DENY`、Referrer Policy 与限制性 Permissions Policy。为动态图表和聊天面板尺寸样式保留 inline style。仅 HTTPS 请求添加 HSTS；当前本机默认 HTTP 不提供传输加密，不可据此暴露到公网。
+最外层 ASGI 响应包装器对正常页面/API、404 和框架生成的 500 响应统一添加 CSP（仅同源脚本与连接、禁止对象和嵌入）、`nosniff`、`X-Frame-Options: DENY`、Referrer Policy 与限制性 Permissions Policy。为动态图表和聊天面板尺寸样式保留 inline style。HTTPS 请求添加 HSTS；云端 Nginx 对 HTTPS 响应也添加 HSTS 并在转发前要求共享 Basic Auth。本机默认 HTTP 仍无传输加密；云端 Basic Auth 不是应用级认证，不能连接真实账户或处理真实交易。
 
 运行全量验证：
 
