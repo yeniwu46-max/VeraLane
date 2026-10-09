@@ -26,6 +26,9 @@ try {
     $env:OPENBLAS_NUM_THREADS = $threadCount
     $env:OMP_NUM_THREADS = $threadCount
     $env:MKL_NUM_THREADS = $threadCount
+    # uv lets inherited shell variables override values in --env-file. Remove a
+    # stale exported key so the project-local .env is the source used by this demo.
+    Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
     Write-Host "Open http://127.0.0.1:$Port (local fictional banking demo). Ctrl+C stops the server."
     uv run --frozen --env-file ../.env uvicorn app.main:app --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -ne 0) { throw 'Demo server stopped with an error' }
