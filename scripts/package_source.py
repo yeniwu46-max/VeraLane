@@ -15,6 +15,8 @@ EXCLUDED_SUFFIXES = {'.sqlite', '.sqlite3', '.db', '.log', '.pem', '.key', '.p12
 
 def allowed(rel: str) -> bool:
     p = PurePosixPath(rel)
+    if p.name.startswith('~$'):
+        return False
     if any(part in EXCLUDED_PARTS for part in p.parts):
         return False
     if p.name == '.env' or (p.name.startswith('.env.') and p.name != '.env.example'):

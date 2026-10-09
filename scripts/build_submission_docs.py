@@ -1,6 +1,8 @@
 """Render the Markdown submission reports to editable Word documents."""
 from pathlib import Path
 import re
+import subprocess
+import sys
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
@@ -156,6 +158,6 @@ def build(source_name, output_name, title):
 
 
 build('安全自评与权限分级.md', 'VeraLane安全自评报告.docx', '安全自评报告')
-build('VeraLane技术文档.md', 'VeraLane技术文档.docx', '技术文档')
 build('部署说明.md', 'VeraLane部署说明.docx', '部署说明')
 build('答辩讲稿.md', 'VeraLane答辩讲稿.docx', '答辩讲稿')
+subprocess.run([sys.executable, str(ROOT / 'scripts' / 'export_technical_doc.py')], check=True)
